@@ -1,11 +1,11 @@
 /** Pure transcript formatting and event assembly. */
 
 import { describe, expect, it } from 'vitest'
-import { visibleWidth } from '@earendil-works/pi-tui'
+import { visibleWidth } from '@oh-my-pi/pi-tui'
 import { CallId, createAssistantMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { AssistantMessageBlock, UserMessageBlock } from '../src/messages.ts'
+import { AssistantMessageBlock, ThinkingBlock, UserMessageBlock } from '../src/messages.ts'
 import { extractText, TranscriptView, wrapLine } from '../src/transcript.ts'
 
 function event<T extends SessionEvent['type']>(
@@ -63,6 +63,16 @@ describe('chat blocks', () => {
     assistant.invalidate()
     expect(assistant.render(40).some(line => line.includes('Hi there'))).toBe(true)
     for (const line of new AssistantMessageBlock('你好世界').render(4)) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(4)
+    }
+    const thinking = new ThinkingBlock('plan')
+    thinking.append(' it')
+    thinking.invalidate()
+    const thought = thinking.render(40).join('\n')
+    expect(thought).toContain('Thinking')
+    expect(thought).toContain('plan it')
+    expect(thought).toContain('\x1b[3m')
+    for (const line of new ThinkingBlock('你好世界').render(4)) {
       expect(visibleWidth(line)).toBeLessThanOrEqual(4)
     }
   })
@@ -166,6 +176,56 @@ describe('TranscriptView', () => {
       }),
     }), false)
     expect(liveMessage.container.render(80).join('\n')).not.toContain('unstreamed')
+  })
+
+  it('streams and replays reasoning ahead of the assistant answer', () => {
+    const view = new TranscriptView(() => undefined)
+    view.applyEvent(event('assistant/chunk', {
+      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: '' },
+    }), false)
+    view.applyEvent(event('assistant/chunk', {
+      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'consider' },
+    }), false)
+    view.applyEvent(event('assistant/chunk', {
+      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: ' this' },
+    }), false)
+    view.applyEvent(event('assistant/chunk', {
+      turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'Done' },
+    }), false)
+    view.applyEvent(event('assistant/message', {
+      turn: 1, step: 1,
+      message: createAssistantMessage({
+        content: [
+          { type: 'reasoning', text: 'consider this' },
+          { type: 'text', text: 'Done' },
+        ],
+        source: { provider: 'p', model: 'm' },
+      }),
+    }), false)
+    const live = view.container.render(80).join('\n')
+    expect(live).toContain('Thinking')
+    expect(live).toContain('consider this')
+    expect(live).toContain('Done')
+
+    const replay = new TranscriptView(() => undefined)
+    replay.applyEvent(event('assistant/message', {
+      turn: 1, step: 1,
+      message: createAssistantMessage({
+        content: [
+          { type: 'reasoning', text: '' },
+          { type: 'reasoning', text: 'prior plan' },
+          { type: 'text', text: '' },
+          { type: 'text', text: 'prior answer' },
+          { type: 'image', attachment: { id: 'img' } as never },
+        ],
+        source: { provider: 'p', model: 'm' },
+      }),
+    }), true)
+    const history = replay.container.render(80).join('\n')
+    expect(history).toContain('Thinking')
+    expect(history).toContain('prior plan')
+    expect(history).toContain('prior answer')
+    expect(history).not.toContain('[image]')
   })
 
   it('uses presentCall/presentResult and survives presenter failures', () => {

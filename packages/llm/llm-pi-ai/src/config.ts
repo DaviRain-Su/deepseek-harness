@@ -21,7 +21,14 @@ import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
-import { MODALITIES, resolveRouteModels, SUPPORTED_THINKING_FORMATS, THINKING_LEVELS } from './catalog.ts'
+import {
+  catalogProviderIds,
+  catalogProviderTakesApiKey,
+  MODALITIES,
+  resolveRouteModels,
+  SUPPORTED_THINKING_FORMATS,
+  THINKING_LEVELS,
+} from './catalog.ts'
 import type {
   PiAiCompatProfile,
   PiAiModality,
@@ -176,6 +183,14 @@ export interface Config {
    * and registers them the moment a settings section supplies profiles.
    */
   providers?: Record<string, PiAiProviderProfile>
+  /**
+   * When true, every installed catalog provider that takes an API key is
+   * registered as a route (ambient discovery when `apiKeyEnv` is omitted).
+   * Explicit `providers` entries override the matching catalog stub. Default
+   * false keeps shipped compositions dormant until a settings section supplies
+   * routes.
+   */
+  enableInstalledCatalog?: boolean
 }
 
 const thinkingBudgets = z.object({
@@ -254,6 +269,7 @@ const profile = z.object({
 /** Runtime schema for {@link Config}. */
 export const Config: z<Config> = z.object({
   providers: z.dict(profile).default({}),
+  enableInstalledCatalog: z.boolean().default(false),
 })
 
 /**
@@ -269,7 +285,34 @@ export const Config: z<Config> = z.object({
  * @throws Error naming the route and model that cannot be served.
  */
 export function assertServiceable(config: Config): void {
-  resolveProfiles(config.providers)
+  resolveConfig(config)
+}
+
+/**
+ * Catalog stubs plus explicit `providers` entries. A settings profile for the
+ * same route wins; OAuth-only catalog providers stay out because this adapter
+ * has no login flow.
+ * @param config - plugin or settings section.
+ * @returns the route dict `resolveProfiles` materializes.
+ */
+export function expandInstalledCatalog(config: Config): Record<string, PiAiProviderProfile> {
+  const providers: Record<string, PiAiProviderProfile> = { ...config.providers }
+  if (config.enableInstalledCatalog !== true) return providers
+  for (const id of catalogProviderIds()) {
+    if (!catalogProviderTakesApiKey(id)) continue
+    if (providers[id] === undefined) providers[id] = {}
+  }
+  return providers
+}
+
+/**
+ * Resolve the live route set from a full plugin config, including catalog
+ * expansion when {@link Config.enableInstalledCatalog} is true.
+ * @param config - plugin or settings section.
+ * @returns validated profiles in configuration order.
+ */
+export function resolveConfig(config: Config): Map<string, ResolvedPiAiProviderProfile> {
+  return resolveProfiles(expandInstalledCatalog(config))
 }
 
 /** Reject removed pre-release profile fields and name their replacements. */

@@ -1,10 +1,12 @@
 /**
- * Session chrome: a Pi-style header above the transcript and a two-line footer.
+ * Session chrome: a Pi-style header above the transcript, and an editor plus
+ * two-line footer pinned to the bottom of the TTY until the transcript fills
+ * the viewport.
  * @module @deepseek-ai/dsh-tui/chrome
  */
 
 import { isAbsolute, relative, resolve, sep } from 'node:path'
-import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui'
+import { Ellipsis, truncateToWidth, visibleWidth, type Component } from '@oh-my-pi/pi-tui'
 import { bold, fg, TUI_COLOR } from './theme.ts'
 import { wrapLine } from './wrap.ts'
 
@@ -24,7 +26,7 @@ export class SessionHeader implements Component {
    */
   render(width: number): string[] {
     const logo = bold(fg(TUI_COLOR.accent, 'dsh'))
-    const hints = ['ctrl+c interrupt', '/ commands', '/exit exit'].join(fg(TUI_COLOR.muted, ' · '))
+    const hints = ['ctrl+c interrupt', '/model', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
     const onboarding = fg(TUI_COLOR.dim, 'Ask dsh to inspect or edit this workspace.')
     const session = fg(TUI_COLOR.dim, `session ${this.sessionId}`)
     return [
@@ -46,6 +48,7 @@ export class SessionHeader implements Component {
  */
 export class SessionFooter implements Component {
   private busy = false
+  private subagents = 0
 
   /**
    * @param cwd - the process working directory; home is replaced with `~`.
@@ -59,6 +62,7 @@ export class SessionFooter implements Component {
   ) {}
 
   /**
+   * Replace the footer model label after `/model` or the initial selection.
    * @param model - the live `provider / model` label.
    */
   setModel(model: string): void {
@@ -66,6 +70,7 @@ export class SessionFooter implements Component {
   }
 
   /**
+   * Toggle the running-turn hint on the stats row.
    * @param busy - true while the Agent is running a turn.
    */
   setBusy(busy: boolean): void {
@@ -73,19 +78,140 @@ export class SessionFooter implements Component {
   }
 
   /**
+   * Replace the running-subagent count on the stats row; zero hides it.
+   * @param running - subagent runs started but not yet settled.
+   */
+  setSubagents(running: number): void {
+    this.subagents = running
+  }
+
+  /**
+   * Paint cwd on the first row and the stats/model row on the second.
    * @param width - columns available to this component.
    * @returns cwd on the first row and the stats/model row on the second.
    */
   render(width: number): string[] {
-    const ellipsis = fg(TUI_COLOR.dim, '...')
-    const pwd = truncateToWidth(fg(TUI_COLOR.dim, formatCwdForFooter(this.cwd, this.home)), width, ellipsis)
-    const left = this.busy ? fg(TUI_COLOR.dim, 'ctrl+c cancel') : ''
+    const pwd = truncateToWidth(fg(TUI_COLOR.dim, formatCwdForFooter(this.cwd, this.home)), width, Ellipsis.Ascii)
+    const stats = [
+      ...this.busy ? ['ctrl+c cancel'] : [],
+      ...this.subagents > 0 ? [`${String(this.subagents)} subagent${this.subagents === 1 ? '' : 's'} running`] : [],
+    ].join(' · ')
+    const left = stats === '' ? '' : fg(TUI_COLOR.dim, stats)
     const right = fg(TUI_COLOR.dim, this.model)
-    return [pwd, alignPair(left, right, width, ellipsis)]
+    return [pwd, alignPair(left, right, width)]
   }
 
   /** No cached rows. */
   invalidate(): void {}
+}
+
+/**
+ * Forwards every Component method to `inner` and stores the last render's row
+ * count so {@link SessionChrome} can pad to the TTY height without rendering
+ * that sibling a second time. `children` is `[inner]` so pi-tui focus and
+ * scoped renders still walk the wrapped tree.
+ */
+export class MeasuredChild implements Component {
+  /** Last `inner.render` row count; 0 before the first render. */
+  rows = 0
+  /** The wrapped component, for pi-tui subtree walks. */
+  readonly children: Component[]
+
+  /**
+   * @param inner - header or transcript rendered above {@link SessionChrome}.
+   */
+  constructor(private readonly inner: Component) {
+    this.children = [inner]
+  }
+
+  /**
+   * @param width - columns available to `inner`.
+   * @returns `inner`'s rows unchanged.
+   */
+  render(width: number): string[] | readonly string[] {
+    const lines = this.inner.render(width)
+    this.rows = lines.length
+    return lines
+  }
+
+  /**
+   * @param ignore - forwarded to `inner` when it implements the hook.
+   */
+  setIgnoreTight(ignore: boolean): void {
+    this.inner.setIgnoreTight?.(ignore)
+  }
+
+  /** Drop `inner` caches. */
+  invalidate(): void {
+    this.inner.invalidate?.()
+  }
+
+  /** Tear down `inner`. */
+  dispose(): void {
+    this.inner.dispose?.()
+  }
+}
+
+/**
+ * Empty rows, then the editor, then the footer: the remainder of the TTY
+ * below the header and transcript. pi-tui top-aligns a frame shorter than the
+ * viewport, so this pad keeps the prompt on the last rows until the
+ * transcript grows past that height.
+ */
+export class SessionChrome implements Component {
+  /** Editor then footer, for pi-tui focus and scoped renders. */
+  readonly children: Component[]
+
+  /**
+   * @param rows - live TTY height (`terminal.rows`).
+   * @param above - header plus transcript row count from this frame's earlier
+   *   {@link MeasuredChild} renders.
+   * @param editor - the focused prompt.
+   * @param footer - cwd and model status under the prompt.
+   */
+  constructor(
+    private readonly rows: () => number,
+    private readonly above: () => number,
+    private readonly editor: Component,
+    private readonly footer: Component,
+  ) {
+    this.children = [editor, footer]
+  }
+
+  /**
+   * @param width - columns available to the editor and footer.
+   * @returns blank pad rows (possibly none), then editor rows, then footer rows.
+   */
+  render(width: number): string[] {
+    const editor = this.editor.render(width)
+    const footer = this.footer.render(width)
+    const fill = Math.max(0, this.rows() - this.above() - editor.length - footer.length)
+    const lines: string[] = []
+    for (let i = 0; i < fill; i++) lines.push('')
+    lines.push(...editor)
+    lines.push(...footer)
+    return lines
+  }
+
+  /**
+   * @param ignore - forwarded to editor and footer when they implement the hook.
+   */
+  setIgnoreTight(ignore: boolean): void {
+    this.editor.setIgnoreTight?.(ignore)
+    this.footer.setIgnoreTight?.(ignore)
+  }
+
+  /** Drop editor and footer caches. */
+  invalidate(): void {
+    this.editor.invalidate?.()
+    this.footer.invalidate?.()
+  }
+
+  /** Tear down editor and footer. */
+  dispose(): void {
+    this.editor.dispose?.()
+    this.footer.dispose?.()
+  }
 }
 
 /**
@@ -116,13 +242,13 @@ export function isCwdInsideHome(relativeToHome: string): boolean {
       && !isAbsolute(relativeToHome))
 }
 
-function alignPair(left: string, right: string, width: number, ellipsis: string): string {
+function alignPair(left: string, right: string, width: number): string {
   if (left === '') {
-    const shown = truncateToWidth(right, width, ellipsis)
+    const shown = truncateToWidth(right, width, Ellipsis.Ascii)
     return `${' '.repeat(width - visibleWidth(shown))}${shown}`
   }
   const leftWidth = visibleWidth(left)
-  if (leftWidth + 2 >= width) return truncateToWidth(left, width, ellipsis)
+  if (leftWidth + 2 >= width) return truncateToWidth(left, width, Ellipsis.Ascii)
   const shownRight = truncateToWidth(right, width - leftWidth - 2, '')
   return `${left}${' '.repeat(width - leftWidth - visibleWidth(shownRight))}${shownRight}`
 }

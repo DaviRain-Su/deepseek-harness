@@ -6,8 +6,7 @@
 import type {
   AutocompleteItem,
   AutocompleteProvider,
-  AutocompleteSuggestions,
-} from '@earendil-works/pi-tui'
+} from '@oh-my-pi/pi-tui'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 
 /**
@@ -24,16 +23,13 @@ export class SlashAutocomplete implements AutocompleteProvider {
    * @param lines - editor buffer.
    * @param cursorLine - focused row index.
    * @param cursorCol - cursor column on that row.
-   * @param options - pi-tui request options (abort signal); unused for a sync catalog.
    * @returns matching items, or `null` when this is not a slash-name token.
    */
   getSuggestions(
     lines: string[],
     cursorLine: number,
     cursorCol: number,
-    options: { signal: AbortSignal; force?: boolean },
-  ): Promise<AutocompleteSuggestions | null> {
-    void options
+  ): Promise<{ items: AutocompleteItem[]; prefix: string } | null> {
     const before = (lines[cursorLine] ?? '').slice(0, cursorCol)
     if (!before.startsWith('/') || before.includes(' ')) return Promise.resolve(null)
     const prefix = before.slice(1)

@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { expectTuiLaunchFailure, hasUsableBun } from './tui-launch.ts'
 
 /** Published-entry acceptance for argument errors, profile lifecycle, and boot-free config dumps. */
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -316,7 +317,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       const bare = await runBuiltBin([], { DSH_HOME: home })
       expect(bare.code).toBe(1)
       expect(bare.stdout).toBe('')
-      expect(bare.stderr).toContain('tui requires an interactive TTY')
+      expectTuiLaunchFailure(bare.stderr)
     } finally {
       rmSync(home, { recursive: true, force: true })
     }
@@ -366,10 +367,15 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
         DSH_HOME: home,
         DSH_TELEMETRY_DISABLED: '1',
       })
-      expect(tuiHelp.code).toBe(0)
-      expect(tuiHelp.stderr).toBe('')
-      expect(tuiHelp.stdout).toContain('Usage: dsh')
-      expect(tuiHelp.stdout).toContain('--resume <session>')
+      if (hasUsableBun()) {
+        expect(tuiHelp.code).toBe(0)
+        expect(tuiHelp.stderr).toBe('')
+        expect(tuiHelp.stdout).toContain('Usage: dsh')
+        expect(tuiHelp.stdout).toContain('--resume <session>')
+      } else {
+        expect(tuiHelp.code).toBe(1)
+        expectTuiLaunchFailure(tuiHelp.stderr)
+      }
 
       const missingTask = await runBuiltBin(['--profile', 'headless'], {
         DSH_HOME: home,

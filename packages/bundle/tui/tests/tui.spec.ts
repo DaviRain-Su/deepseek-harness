@@ -11,7 +11,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
-import { ProcessTerminal } from '@earendil-works/pi-tui'
+import { ProcessTerminal } from '@oh-my-pi/pi-tui'
 import { apply, Config, internals, TuiApp } from '../src/index.ts'
 import { FakeTerminal } from './fake-terminal.ts'
 
@@ -388,5 +388,72 @@ describe('tui runtime', () => {
     expect(disposed).toBe(true)
     await app['disposeHandle']()
     await ctx.fiber.dispose()
+  })
+
+  it('pins the editor and footer to the bottom of an empty viewport', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const tui = app['tui']!
+    const width = test.fake.columns
+    const frame = [...tui.render(width)]
+    expect(frame).toHaveLength(test.fake.rows)
+    expect(frame.slice(-2)).toEqual(app['footer'].render(width))
+    expect(frame[0]).toContain('dsh')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('opens /model over ctx.llm, switches the live selection, and updates the footer', async () => {
+    const test = await bench()
+    test.ctx.provide('llm', {
+      listProviders: () => [{ id: 'openai', name: 'openai' }, { id: 'test-provider', name: 'Test' }],
+      listModels: async (provider: string) => provider === 'openai'
+        ? [{ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }]
+        : [{ provider: 'test-provider', id: 'test-model', name: 'Test Model' }],
+    } as never)
+    const { app, code } = await test.run()
+    await app.openModelPicker()
+    test.fake.type('\x1b[A')
+    test.fake.type('\r')
+    await Promise.resolve()
+    expect(app['selection']?.current).toEqual({ provider: 'openai', model: 'gpt-4.1' })
+    expect(app['footer'].render(80)[1]).toContain('openai / gpt-4.1')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices a missing LLM runtime and an empty catalog, and ignores a second overlay', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/model')
+    test.ctx.provide('llm', {
+      listProviders: () => [],
+      listModels: async () => [],
+    } as never)
+    await app.openModelPicker()
+    app.openThemePicker()
+    app.openThemePicker()
+    test.fake.type('\x1b')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('applies /theme and ctrl+p, then restores the dark palette', async () => {
+    const test = await bench()
+    test.ctx.provide('llm', {
+      listProviders: () => [{ id: 'test-provider', name: 'Test' }],
+      listModels: async () => [{ provider: 'test-provider', id: 'test-model', name: 'Test Model' }],
+    } as never)
+    const { app, code } = await test.run()
+    await app.submit('/theme')
+    test.fake.type('\r')
+    test.fake.type('\x10')
+    await Promise.resolve()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
   })
 })

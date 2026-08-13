@@ -8,10 +8,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import {
   Editor,
   ProcessTerminal,
-  TuiMainScreen,
+  TUI,
   matchesKey,
-} from '@earendil-works/pi-tui'
-import type { Terminal, TUI } from '@earendil-works/pi-tui'
+} from '@oh-my-pi/pi-tui'
+import type { OverlayHandle, SelectItem, Terminal } from '@oh-my-pi/pi-tui'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
@@ -19,15 +19,22 @@ import { parseCommand } from '@deepseek-ai/dsh-commands'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-commands'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { SlashAutocomplete } from './autocomplete.ts'
-import { SessionFooter, SessionHeader } from './chrome.ts'
+import { MeasuredChild, SessionChrome, SessionFooter, SessionHeader } from './chrome.ts'
+import { OverlayPicker, showPicker } from './picker.ts'
 import { createQuestionProvider } from './questions.ts'
-import { TUI_EDITOR_THEME } from './theme.ts'
+import {
+  applyTuiTheme,
+  currentTuiThemeId,
+  listTuiThemes,
+  TUI_EDITOR_THEME,
+} from './theme.ts'
 import { TranscriptView } from './transcript.ts'
 
 /** Process-facing effects of one TUI run. */
@@ -62,6 +69,8 @@ export class TuiApp {
   private agent: Agent | undefined
   private tui: TUI | undefined
   private terminal: Terminal | undefined
+  private selection: ModelSelectionRef | undefined
+  private overlay: OverlayHandle | undefined
   private readonly transcript = new TranscriptView(name => this.ctx.get('tools')?.get(name, this.agent))
   private readonly footer = new SessionFooter(process.cwd(), '')
   private stopped = false
@@ -97,12 +106,13 @@ export class TuiApp {
       || userQuestions === undefined
     ) return
 
-    const selection = defaultModel.currentSelection()
+    const initial = defaultModel.currentSelection()
+    const selection: ModelSelectionRef = { current: initial, assembled: undefined }
+    this.selection = selection
     const setup = (agentCtx: Context): void => {
-      const selected: ModelSelectionRef = { current: selection, assembled: undefined }
-      installModelSelection(agentCtx, selected)
+      installModelSelection(agentCtx, selection)
     }
-    const agentOptions = { provider: selection.provider, model: selection.model }
+    const agentOptions = { provider: initial.provider, model: initial.model }
     this.handle = this.resume === ''
       ? await agents.create({
         sessionId: SessionId(`session-${randomUUID()}`),
@@ -122,19 +132,25 @@ export class TuiApp {
 
     const terminal = internals.createTerminal()
     this.terminal = terminal
-    const tui: TUI = new TuiMainScreen(terminal)
+    const tui = new TUI(terminal)
     this.tui = tui
     const agent = this.agent
-    this.footer.setModel(`${selection.provider} / ${selection.model}`)
-    tui.addChild(new SessionHeader(agent.id))
-    tui.addChild(this.transcript.container)
+    this.footer.setModel(modelLabel(selection.current))
+    const header = new MeasuredChild(new SessionHeader(agent.id))
+    const transcript = new MeasuredChild(this.transcript.container)
+    tui.addChild(header)
+    tui.addChild(transcript)
     for (const event of agent.session.events) this.applyEvent(event, true)
 
-    const editor = new Editor(tui, TUI_EDITOR_THEME)
+    const editor = new Editor(TUI_EDITOR_THEME)
     editor.setAutocompleteProvider(new SlashAutocomplete(this.listSlashCommands))
     editor.onSubmit = this.enqueueSubmit
-    tui.addChild(editor)
-    tui.addChild(this.footer)
+    tui.addChild(new SessionChrome(
+      () => terminal.rows,
+      () => header.rows + transcript.rows,
+      editor,
+      this.footer,
+    ))
     tui.setFocus(editor)
     tui.addInputListener((data: string) => {
       if (matchesKey(data, 'ctrl+c')) {
@@ -149,16 +165,36 @@ export class TuiApp {
         void this.quit(0)
         return { consume: true }
       }
+      if (matchesKey(data, 'ctrl+p') || matchesKey(data, 'alt+p')) {
+        void this.openModelPicker()
+        return { consume: true }
+      }
       return undefined
     })
 
     commands.register({
       name: 'help',
       description: 'List slash commands',
-      handler: ({ agent }) => ({
+      handler: ({ agent: current }) => ({
         kind: 'success' as const,
-        text: commands.list(agent).map(command => `/${command.name}  ${command.description}`).join('\n'),
+        text: commands.list(current).map(command => `/${command.name}  ${command.description}`).join('\n'),
       }),
+    })
+    commands.register({
+      name: 'model',
+      description: 'Switch the session model',
+      handler: () => {
+        void this.openModelPicker()
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'theme',
+      description: 'Switch the terminal theme',
+      handler: () => {
+        this.openThemePicker()
+        return { kind: 'success' as const, text: '' }
+      },
     })
     commands.register({
       name: 'exit',
@@ -277,6 +313,7 @@ export class TuiApp {
     if (this.stopped) return
     this.stopped = true
     this.abort.abort()
+    this.hideOverlay()
     this.tui?.stop()
     this.tui = undefined
   }
@@ -299,5 +336,112 @@ export class TuiApp {
     if (event.type === 'turn/end') this.footer.setBusy(false)
     this.transcript.applyEvent(event, replay)
     this.tui?.requestRender()
+  }
+
+  /**
+   * Open `/model`: list registered `ctx.llm` routes, then mutate the live
+   * selection and persist it through `agentDefaultModel.saveSelection`.
+   */
+  async openModelPicker(): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const llm = this.ctx.get('llm')
+    if (llm === undefined) {
+      this.notice('no LLM runtime is mounted')
+      return
+    }
+    const items: SelectItem[] = []
+    for (const provider of llm.listProviders()) {
+      const models = await llm.listModels(provider.id)
+      for (const model of models) items.push(modelItem(provider.id, model))
+    }
+    if (items.length === 0) {
+      this.notice('no LLM providers registered')
+      return
+    }
+    const current = this.selection?.current
+    const selectedValue = current === undefined ? undefined : modelValue(current.provider, current.model)
+    const picker = new OverlayPicker(
+      'Model',
+      items,
+      '↑/↓ · Enter switch · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          void this.applyModelPick(item)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+      selectedValue,
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /** Open `/theme` over the built-in palette set. */
+  openThemePicker(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const items = listTuiThemes().map(id => ({ value: id, label: id }))
+    const picker = new OverlayPicker(
+      'Theme',
+      items,
+      '↑/↓ · Enter apply · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          if (!applyTuiTheme(item.value)) {
+            this.notice(`unknown theme: ${item.value}`)
+            return
+          }
+          this.notice(`theme ${item.value}`)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+      currentTuiThemeId(),
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  private hideOverlay(): void {
+    this.overlay?.hide()
+    this.overlay = undefined
+    this.tui?.requestRender()
+  }
+
+  /**
+   * Apply a `/model` confirmation to the live selection, footer, and settings.
+   * @param item - the picker row whose value is `provider\\0model`.
+   */
+  private async applyModelPick(item: SelectItem): Promise<void> {
+    const parsed = parseModelValue(item.value)
+    if (parsed === undefined || this.selection === undefined) return
+    this.selection.current = parsed
+    this.footer.setModel(modelLabel(parsed))
+    this.tui?.requestRender()
+    await this.ctx.get('agentDefaultModel')?.saveSelection(parsed)
+    this.notice(`model ${parsed.provider} / ${parsed.model}`)
+  }
+}
+
+function modelValue(provider: string, model: string): string {
+  return `${provider}\0${model}`
+}
+
+function parseModelValue(value: string): { provider: string; model: string } | undefined {
+  const split = value.indexOf('\0')
+  if (split <= 0 || split === value.length - 1) return undefined
+  return { provider: value.slice(0, split), model: value.slice(split + 1) }
+}
+
+function modelLabel(selection: { provider: string; model: string } | undefined): string {
+  if (selection === undefined) return ''
+  return `${selection.provider} / ${selection.model}`
+}
+
+function modelItem(provider: string, model: LlmModelInfo): SelectItem {
+  return {
+    value: modelValue(provider, model.id),
+    label: `${provider} / ${model.id}`,
+    description: model.name,
   }
 }

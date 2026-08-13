@@ -88,7 +88,7 @@ class Hmr extends Service {
 
   public baseDir: string
 
-  private internal: ModuleLoader
+  private internal: ModuleLoader | undefined
   private watcher!: FSWatcher
   private readonly configs = new Map<string, ConfigRegistration>()
   private readonly configRefreshes = new WeakMap<object, ConfigRefresh>()
@@ -117,7 +117,10 @@ class Hmr extends Service {
 
   constructor(ctx: Context, public config: Hmr.Config) {
     super(ctx, 'hmr')
-    if (!this.ctx.loader.internal) {
+    // Module reload walks Node's ESM loadCache. Exact-config watching with
+    // no module roots (`root: []`) does not, so a runtime without
+    // `loader.internal` can still keep user patch files live.
+    if (config.root.length > 0 && this.ctx.loader.internal === undefined) {
       throw new Error('--expose-internals is required for HMR service')
     }
     this.internal = this.ctx.loader.internal
@@ -190,9 +193,9 @@ class Hmr extends Service {
    * Resolve a module specifier to a URL, compatible with Node 22-24.
    */
   private async _resolve(specifier: string, parentURL: string, attrs: ImportAttributes): Promise<ResolveResult> {
-    switch (this.internal.version) {
-      case 'v1': return await this.internal.resolve(specifier, parentURL, attrs)
-      case 'v2': return this.internal.resolveSync(parentURL, { specifier, attributes: attrs })
+    switch (this.internal!.version) {
+      case 'v1': return await this.internal!.resolve(specifier, parentURL, attrs)
+      case 'v2': return this.internal!.resolveSync(parentURL, { specifier, attributes: attrs })
     }
   }
 
@@ -217,8 +220,11 @@ class Hmr extends Service {
 
     // Collect externals before opening the watcher so every post-ready change
     // is observed by listeners that already have their classification state.
-    const mainUrl = pathToFileURL(resolve(process.argv[1])).href
-    const mainJob = this.internal.loadCache.get(mainUrl)
+    // Watch-only instances have no module graph and no `loader.internal`.
+    const entryPath = process.argv[1]
+    const mainJob = this.internal === undefined || typeof entryPath !== 'string'
+      ? undefined
+      : this.internal.loadCache.get(pathToFileURL(resolve(entryPath)).href)
     if (mainJob) {
       this.externals = await loadDependencies(mainJob)
     } else {
@@ -262,7 +268,7 @@ class Hmr extends Service {
       // Partial reload: the file is in the ESM loadCache
       // In Node 24, both CJS and ESM modules imported via import() end up
       // in loadCache, so this check covers all module formats.
-      if (loader.internal!.loadCache.has(url)) {
+      if (loader.internal?.loadCache.has(url)) {
         this.stashed.add(url)
         return partialReload()
       }
@@ -329,7 +335,7 @@ class Hmr extends Service {
   ]
 
   async getLinked(url: string) {
-    const job = this.internal.loadCache.get(url)
+    const job = this.internal!.loadCache.get(url)
     if (!job) return []
     const linked = await job.linked
     return Array.prototype.map.call(linked, (job: ModuleJob) => job.url) as string[]
@@ -416,7 +422,7 @@ class Hmr extends Service {
         try {
           const { url } = await this._resolve(name, baseUrl, {})
           if (this.declined.has(url)) continue
-          const job = this.internal.loadCache.get(url)
+          const job = this.internal!.loadCache.get(url)
           const plugin = this.ctx.loader.unwrapExports(job?.module?.getNamespace())
           if (!job || !plugin) continue
           pending.set(job, plugin)
@@ -463,9 +469,9 @@ class Hmr extends Service {
     const require = createRequire(import.meta.url)
     for (const filename of this.accepted) {
       // Backup and clear ESM loadCache
-      const job = Map.prototype.get.call(this.internal.loadCache, filename)
+      const job = Map.prototype.get.call(this.internal!.loadCache, filename)
       esmBackup[filename] = job
-      Map.prototype.delete.call(this.internal.loadCache, filename)
+      Map.prototype.delete.call(this.internal!.loadCache, filename)
 
       // Backup and clear CJS Module._cache
       try {
@@ -481,7 +487,7 @@ class Hmr extends Service {
 
     const rollback = () => {
       for (const filename in esmBackup) {
-        Map.prototype.set.call(this.internal.loadCache, filename, esmBackup[filename])
+        Map.prototype.set.call(this.internal!.loadCache, filename, esmBackup[filename])
       }
       for (const filepath in cjsBackup) {
         require.cache[filepath] = cjsBackup[filepath]

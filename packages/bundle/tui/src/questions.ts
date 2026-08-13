@@ -3,8 +3,8 @@
  * @module @deepseek-ai/dsh-tui/questions
  */
 
-import type { Component, TUI } from '@earendil-works/pi-tui'
-import { matchesKey } from '@earendil-works/pi-tui'
+import type { Component, TUI } from '@oh-my-pi/pi-tui'
+import { matchesKey } from '@oh-my-pi/pi-tui'
 import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
 import type {
   AskUserQuestionAnswerItem,

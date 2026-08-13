@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
+import { expectTuiLaunchFailure } from './tui-launch.ts'
 
 /**
  * Keyless smoke for SOURCE `dsh` execution: run `apps/cli/src/bin.ts`
@@ -46,7 +47,7 @@ describe('dsh SOURCE launcher (node --import tsx/esm)', () => {
         throw new Error(`dsh source launch did not exit within 55s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
       }
       expect(result.exitCode).not.toBe(0)
-      expect(result.stderr).toContain('tui requires an interactive TTY')
+      expectTuiLaunchFailure(result.stderr)
       expect(result.stdout).toBe('')
     } finally {
       rmSync(home, { recursive: true, force: true })

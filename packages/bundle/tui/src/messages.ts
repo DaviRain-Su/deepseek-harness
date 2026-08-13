@@ -1,10 +1,12 @@
 /**
- * Chat blocks: a Pi user-message bubble and a streaming assistant Markdown body.
+ * Chat blocks: a Pi user-message bubble, a dim Thinking body, and a streaming
+ * assistant Markdown answer.
  * @module @deepseek-ai/dsh-tui/messages
  */
 
-import { Box, Markdown, type Component } from '@earendil-works/pi-tui'
-import { bg, fg, TUI_COLOR, TUI_MARKDOWN_THEME } from './theme.ts'
+import { Box, Markdown, type Component } from '@oh-my-pi/pi-tui'
+import { bg, fg, italic, TUI_COLOR, TUI_MARKDOWN_THEME } from './theme.ts'
+import { wrapLine } from './wrap.ts'
 
 /**
  * User turn: Pi's padded `Box` with `userMessageBg` around Markdown whose
@@ -74,4 +76,43 @@ export class AssistantMessageBlock implements Component {
   invalidate(): void {
     this.markdown.invalidate()
   }
+}
+
+/**
+ * Assistant reasoning: a dim italic "Thinking" label and the streamed body,
+ * distinct from the Markdown answer that follows.
+ */
+export class ThinkingBlock implements Component {
+  private text: string
+
+  /**
+   * @param text - the current reasoning body.
+   */
+  constructor(text: string) {
+    this.text = text
+  }
+
+  /**
+   * Append a streamed reasoning delta.
+   * @param delta - the next reasoning-delta chunk.
+   */
+  append(delta: string): void {
+    this.text += delta
+  }
+
+  /**
+   * @param width - columns available to this component.
+   * @returns the label, wrapped body, and a trailing blank row.
+   */
+  render(width: number): string[] {
+    const paint = (line: string) => fg(TUI_COLOR.dim, italic(line))
+    return [
+      ...wrapLine('Thinking', width).map(paint),
+      ...wrapLine(this.text, width).map(paint),
+      '',
+    ]
+  }
+
+  /** No cached rows. */
+  invalidate(): void {}
 }

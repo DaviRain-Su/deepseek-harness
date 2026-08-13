@@ -15,6 +15,7 @@ export default defineConfig([
     fixedExtension: false,
     dts: false,
     clean: false,
+    external: ['amaro'],
   },
   {
     entry: ['lib/types/worker.js'],

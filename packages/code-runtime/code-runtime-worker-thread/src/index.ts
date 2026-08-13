@@ -6,10 +6,10 @@
  * @module @deepseek-ai/dsh-code-runtime-worker-thread
  */
 
-import { Worker } from 'node:worker_threads'
-import { stripTypeScriptTypes } from 'node:module'
+import * as nodeModule from 'node:module'
 import type { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -82,6 +82,24 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
  * line/column positions intact.
  */
 const STRIP_WRAP = { prefix: 'async function __dsh_program__() {\n', suffix: '\n}' } as const
+
+/** Node's type-strip when the runtime exports it. */
+type StripTypes = (code: string) => string
+
+/**
+ * Strip erasable TypeScript in place. Node exposes `stripTypeScriptTypes`;
+ * bun does not, so that path uses amaro's strip-only mode (the same engine
+ * Node bundles). Both replace removed syntax with whitespace.
+ * @param source - wrapped program text to strip.
+ * @returns the position-preserving stripped source.
+ */
+async function stripTypes(source: string): Promise<string> {
+  const strip = (nodeModule as { stripTypeScriptTypes?: StripTypes }).stripTypeScriptTypes
+  if (typeof strip === 'function') return strip(source)
+  /* v8 ignore next 2 -- bun's `node:module` has no stripTypeScriptTypes; Node coverage always takes the builtin. */
+  const { transformSync } = await import('amaro')
+  return transformSync(source, { mode: 'strip-only' }).code
+}
 
 /** One in-flight run's host-side state, tracked for disposal. */
 interface LiveRun {
@@ -299,7 +317,7 @@ export class WorkerThreadCodeRuntime extends CodeRuntime {
 
     let code: string
     try {
-      const stripped = stripTypeScriptTypes(STRIP_WRAP.prefix + request.program + STRIP_WRAP.suffix)
+      const stripped = await stripTypes(STRIP_WRAP.prefix + request.program + STRIP_WRAP.suffix)
       code = stripped.slice(STRIP_WRAP.prefix.length, stripped.length - STRIP_WRAP.suffix.length)
     } catch (error: unknown) {
       // A program that does not survive the type-strip (syntax error,

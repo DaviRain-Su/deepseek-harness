@@ -770,6 +770,39 @@ describe('boot', () => {
     )
   })
 
+  it('lists every AggregateError member from host preparation', async () => {
+    const dir = tmp()
+    await expect(boot(NAME, join(dir, 'cordis.yml'), undefined, () => {
+      throw new AggregateError([new Error('prep-one'), new Error('prep-two')], 'host multi')
+    })).rejects.toThrow([
+      `${NAME}: host preparation failed: host multi`,
+      '- prep-one',
+      '- prep-two',
+    ].join('\n'))
+  })
+
+  it('lists every concurrent loader-entry failure instead of only the AggregateError wrapper', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'a.mjs'), 'export function apply() { throw new Error("alpha-fail") }\n')
+    writeFileSync(join(dir, 'b.mjs'), 'export function apply() { throw new Error("beta-fail") }\n')
+    writeFileSync(join(dir, 'cordis.yml'), [
+      '- id: a',
+      '  name: ./a.mjs',
+      '- id: b',
+      '  name: ./b.mjs',
+      '',
+    ].join('\n'))
+    const error = await boot(NAME, join(dir, 'cordis.yml')).then(
+      () => undefined,
+      (reason: unknown) => reason,
+    )
+    expect(error).toBeInstanceOf(Error)
+    const text = String(error)
+    expect(text).toContain('failed to apply loader entry a (./a.mjs): alpha-fail')
+    expect(text).toContain('failed to apply loader entry b (./b.mjs): beta-fail')
+    expect(text).toMatch(/- failed to apply loader entry a[\s\S]*- failed to apply loader entry b/)
+  })
+
   it('reports a pending real Loader fiber and the service unresolved in its own context', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'waiting.mjs'), 'export const inject = ["neverProvided"]\nexport function apply() {}\n')

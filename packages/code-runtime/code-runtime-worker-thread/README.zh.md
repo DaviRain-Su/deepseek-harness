@@ -21,7 +21,7 @@
 ## 设计
 
 - **每次运行使用一个全新 worker，不设池化**：程序所在的世界会随 worker 一同终止，不会留下需要记录的跨运行状态，也无法发生状态泄漏；仅凭会话日志即可重建运行。
-- **在执行上下文中，由宿主侧剥离类型**：程序会包裹在异步函数外壳中，通过 `node:module` 的 `stripTypeScriptTypes` 剥离类型（只支持可擦除语法；`enum`／namespace 会作为程序 `exception` 被拒绝，且不会启动 worker），再按字节位置切回原内容。之后程序作为 `AsyncFunction` 的函数体执行，因此顶层 `await`／`return` 可用。
+- **在执行上下文中，由宿主侧剥离类型**：程序会包裹在异步函数外壳中，在 `node:module` 导出 `stripTypeScriptTypes` 时用它剥离类型，否则使用 `amaro` 的 strip-only 模式（只支持可擦除语法；`enum`／namespace 会作为程序 `exception` 被拒绝，且不会启动 worker），再按字节位置切回原内容。之后程序作为 `AsyncFunction` 的函数体执行，因此顶层 `await`／`return` 可用。
 - **端口把对端视为不可信**：模型代码能够访问 `parentPort` 并伪造通信，因此任何代码读取入站消息前，系统都会验证其形状并重新构建（`null`、原始值、无效类型和格式错误的载荷会被静默丢弃；伪造的额外字段绝不会被带入）；宿主对每个调用 id 最多响应一次，只将绑定名称解析为自有属性（伪造的 `constructor` 无法沿原型链访问），丢弃结算后的回复，并验证每个绑定 resolve 值与完成值是否为无损 JSON。伪造的 `log`／`done` 消息无法绕过外层上限：宿主会再次验证，并统计每条获准日志以及完成值或诊断。worker 侧命名空间使用 null-prototype 和 `defineProperty`，因此形似 `__proto__` 的绑定名称只是普通键。
 - **绑定调用被拒绝时使用的异常类属于请求数据**：可选命名空间描述符会指定构造器全局变量，以及用于接收调用失败的成员名称的自有属性。worker 会创建并注入该真实类，使 `instanceof` 生效，同时无需硬编码 `tools` 或 `ToolCallError`；全局变量无效或冲突的声明会在启动 worker 前失败。失败路径使用模块捕获的错误 intrinsic 与属性定义 intrinsic，以及 null-prototype 描述符，因此模型之后的修改无法把被拒绝的绑定变成 worker 崩溃。
 - **两个独立预算，因为对端不可信**：`computeMs` 统计 worker 实际测得的忙碌时间（轮询 `worker.performance.eventLoopUtilization()`）；热循环无法借助待完成的诱饵 dispatch 隐藏，程序等待慢工具时则不累计。`maxWallMs` 为忙碌时间无法观测的情况兜底（例如等待永远不会 resolve 的 promise）。二者最终都会调用 `worker.terminate()`，连同步热循环也能终止；堆溢出会表现为 worker 的 OOM 退出（`kind: 'worker-exit'`）。`maxWallMs` 在加载时会对照 `MAX_TIMER_DELAY_MS` 做范围校验：`setTimeout` 会把更长的延迟限制为 1 ms，仅有正数校验会放行一个在第一个 tick 就到期的上限。`computeMs` 不需要这道上界，因为它对照的是实测占用率，而不是喂给定时器。
@@ -47,7 +47,7 @@ SDK 对外提供默认及具名导出的 `WorkerThreadCodeRuntime` 类，以及 
 ## 已知限制与暂缓事项
 
 - **程序派生的 OS 进程在程序终止后仍会存活**：`worker.terminate()` 只结束线程，比 bash-local 的进程组终止更弱；在容器后端出现前，孤儿进程清理属于部署职责。
-- **类型剥离依赖 Node 的实验性 `stripTypeScriptTypes` API**：如依赖的行为发生变化，amaro 或 sucrase 是已经点名的直接替代品。
+- **类型剥离在可用时依赖 Node 的实验性 `stripTypeScriptTypes` API**：bun 不导出该 API，该路径使用 `amaro` 的 strip-only 模式。
 - **`computeMs` 到期最多可能超过一个轮询间隔**：系统每 25 ms 采样一次忙碌时间（内部常量，有意不做成配置）。
 - **程序获得一个含 5 个方法的 `console` shim**（`log`／`info`／`warn`／`error`／`debug`）：有意不提供 Node 的完整 console 接口。
 - **中间绑定值没有字节上限**：程序可以用永远不会成为外层输出的值耗尽进程或 worker 内存。

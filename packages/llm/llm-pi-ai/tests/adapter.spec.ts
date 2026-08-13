@@ -12,7 +12,7 @@ import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { resolveProfiles } from '../src/config.ts'
+import { resolveProfiles, resolveConfig } from '../src/config.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
@@ -699,6 +699,8 @@ describe('provider profile lifecycle', () => {
     // Empty and omitted dicts are the dormant zero-route posture, not errors.
     expect(resolveProfiles({}).size).toBe(0)
     expect(resolveProfiles(undefined).size).toBe(0)
+    expect(resolveConfig({}).size).toBe(0)
+    expect(resolveConfig({ enableInstalledCatalog: false }).size).toBe(0)
     expect(() => resolveProfiles({ '': {} })).toThrow(/non-empty/)
     // A route the installed catalog does not ship is allowed, but it has no
     // defaults to fall back on: it must describe its own models.
@@ -709,6 +711,27 @@ describe('provider profile lifecycle', () => {
     expect(() => resolveProfiles({ openai: { provider: 'openai' } as never })).toThrow(/moved to the providers dict key/)
     expect(() => resolveProfiles({ openai: { baseURL: '' } })).toThrow(/empty baseURL/)
     expect(() => resolveProfiles({ openai: { apiKeyEnv: 'not-a-var!' } })).toThrow(/must match/)
+  })
+
+  it('registers api-key catalog routes when enableInstalledCatalog is true', () => {
+    const resolved = resolveConfig({ enableInstalledCatalog: true })
+    expect(resolved.size).toBeGreaterThan(10)
+    expect(resolved.has('openai')).toBe(true)
+    expect(resolved.get('openai')?.apiKeyEnv).toBeUndefined()
+    const overlay = resolveConfig({
+      enableInstalledCatalog: true,
+      providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } },
+    })
+    expect(overlay.get('openai')?.apiKeyEnv).toBeDefined()
+    expect(overlay.size).toBe(resolved.size)
+  })
+
+  it('registers catalog routes on the llm runtime when enableInstalledCatalog is true', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { enableInstalledCatalog: true })
+    expect(ctx.llm.listProviders().some(provider => provider.id === 'openai')).toBe(true)
+    await ctx.fiber.dispose()
   })
 
   it.each(['maxRetries', 'maxRetryDelayMs'] as const)(

@@ -30,7 +30,7 @@
 
 一次性任务（`dsh --profile headless "run the tests"`）通过核心注册表创建一个全新的持久化 Agent（智能体），提交任务、等待完全停稳并对会话执行 flush，再从其持久化事件区间中推导最后一个非空 assistant 文本与最终 `turn/end` 原因。它在 stdout 打印文本，并在原因为 `completed` 时以 0 退出，否则以 1 退出。没有任务的调用是该应用的用法错误。随附 headless profile 不挂载 ApiProxy、Host、HTTP 服务器、Web 运行时或浏览器客户端；成功运行不会向 stderr 写入任何内容，也不会打开监听端口。
 
-`dsh`（或 `dsh --profile tui`）通过 pi-tui 占用 TTY，创建或恢复一个持久化 Agent，并经由 `/exit`、`/quit`、Ctrl+D，或空闲时的 Ctrl+C 退出。`--resume` / `--session` 指定已持久化的 id；空值或省略会新建会话，冲突值属于用法错误。键入的行成为普通用户消息；以 `/` 开头的行留在命令平面。随附 tui profile 不挂载 ApiProxy、Host、HTTP 服务器、Web 运行时或浏览器客户端。缺少 TTY 属于用法错误。
+`dsh`（或 `dsh --profile tui`）在 bun >= 1.3.14 下 re-exec，通过 pi-tui 占用 TTY，创建或恢复一个持久化 Agent，并经由 `/exit`、`/quit`、Ctrl+D，或空闲时的 Ctrl+C 退出。缺少 bun 会在 TTY 检查之前报用法错误；`dsh web` 和 `dsh --profile headless` 留在 Node。`--resume` / `--session` 指定已持久化的 id；空值或省略会新建会话，冲突值属于用法错误。键入的行成为普通用户消息；以 `/` 开头的行留在命令平面（tui runtime 在此注册 `/model` 和 `/theme`）。随附 tui profile 不挂载 ApiProxy、Host、HTTP 服务器、Web 运行时或浏览器客户端。缺少 TTY 属于用法错误。
 
 可在不启动的情况下检查组合出的配置树：
 
@@ -84,4 +84,4 @@ dsh web --help
 
 ## 源码执行
 
-请在仓库根目录中，于全新 checkout 之后及产物需要更新时单独运行 `pnpm run build`，然后使用 `pnpm dsh <args...>`。`package.json` 中的脚本不会构建，而是通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`，并转发所有参数。Typert Host 产物缺失时，profile 启动会因不含构建指引的模块解析错误而失败。这些 Host 产物存在后，如果前端或 Client plugin 组合包缺失，启动会失败并提示运行 `pnpm run build`。启动器不会检查产物是否为最新，因此已有的陈旧组合包可能继续运行旧版浏览器代码，直至重新构建。该进程会继承启动环境；当支持环境代理的 Node 版本必须遵循 `HTTP_PROXY` 和 `HTTPS_PROXY` 时，请设置 `NODE_USE_ENV_PROXY=1`。安装形式会直接启动构建后的 `apps/cli/lib/bin.js`，不会重新构建仓库。
+请在仓库根目录中，于全新 checkout 之后及产物需要更新时单独运行 `pnpm run build`，然后使用 `pnpm dsh <args...>`。`package.json` 中的脚本不会构建，而是通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`，并转发所有参数。tui profile 随后会用 bun 替换该 Node 进程、运行同一入口；web 和 headless 仍留在 Node。Typert Host 产物缺失时，profile 启动会因不含构建指引的模块解析错误而失败。这些 Host 产物存在后，如果前端或 Client plugin 组合包缺失，启动会失败并提示运行 `pnpm run build`。启动器不会检查产物是否为最新，因此已有的陈旧组合包可能继续运行旧版浏览器代码，直至重新构建。该进程会继承启动环境；当支持环境代理的 Node 版本必须遵循 `HTTP_PROXY` 和 `HTTPS_PROXY` 时，请设置 `NODE_USE_ENV_PROXY=1`。安装形式会直接启动构建后的 `apps/cli/lib/bin.js`，不会重新构建仓库。

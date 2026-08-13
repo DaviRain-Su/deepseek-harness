@@ -1,9 +1,35 @@
-/** Session header and footer chrome. */
+/** Session header, footer, and bottom-pinned prompt chrome. */
 
 import { sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { visibleWidth } from '@earendil-works/pi-tui'
-import { formatCwdForFooter, homeDir, isCwdInsideHome, SessionFooter, SessionHeader } from '../src/chrome.ts'
+import type { Component } from '@oh-my-pi/pi-tui'
+import { visibleWidth } from '@oh-my-pi/pi-tui'
+import {
+  formatCwdForFooter,
+  homeDir,
+  isCwdInsideHome,
+  MeasuredChild,
+  SessionChrome,
+  SessionFooter,
+  SessionHeader,
+} from '../src/chrome.ts'
+
+function stub(lines: string[], hooks?: {
+  invalidate?: () => void
+  dispose?: () => void
+  setIgnoreTight?: (ignore: boolean) => void
+}): Component {
+  return {
+    render: () => lines,
+    invalidate: hooks?.invalidate,
+    dispose: hooks?.dispose,
+    setIgnoreTight: hooks?.setIgnoreTight,
+  }
+}
+
+function stack(header: MeasuredChild, transcript: MeasuredChild, chrome: SessionChrome, width: number): string[] {
+  return [...header.render(width), ...transcript.render(width), ...chrome.render(width)]
+}
 
 describe('SessionHeader', () => {
   it('wraps the accent product name, key hints, and session id', () => {
@@ -12,7 +38,8 @@ describe('SessionHeader', () => {
     const lines = header.render(80)
     expect(lines.join('\n')).toContain('dsh')
     expect(lines.join('\n')).toContain('ctrl+c interrupt')
-    expect(lines.join('\n')).toContain('/ commands')
+    expect(lines.join('\n')).toContain('/model')
+    expect(lines.join('\n')).toContain('/theme')
     expect(lines.join('\n')).toContain('session session-1')
     expect(lines[0]).toContain('\x1b[')
     for (const line of header.render(8)) expect(visibleWidth(line)).toBeLessThanOrEqual(8)
@@ -59,5 +86,67 @@ describe('SessionFooter', () => {
     expect(visibleWidth(footer.render(16)[1] ?? '')).toBeLessThanOrEqual(16)
     expect(new SessionFooter('/tmp/work', 'm', undefined).render(40)[0]).toContain('/tmp/work')
     expect(new SessionFooter('/tmp/work', 'm', '/tmp/work').render(40)[0]).toContain('~')
+  })
+})
+
+describe('SessionChrome', () => {
+  it('pads so the editor and footer sit on the last rows of a short frame', () => {
+    const header = new MeasuredChild(stub(['H']))
+    const transcript = new MeasuredChild(stub(['T']))
+    const editor = stub(['E1', 'E2', 'E3'])
+    const footer = stub(['F1', 'F2'])
+    const chrome = new SessionChrome(() => 12, () => header.rows + transcript.rows, editor, footer)
+    const frame = stack(header, transcript, chrome, 40)
+    expect(frame).toHaveLength(12)
+    expect(frame.slice(-5)).toEqual(['E1', 'E2', 'E3', 'F1', 'F2'])
+    expect(frame.slice(0, 2)).toEqual(['H', 'T'])
+    expect(frame.slice(2, 7).every(line => line === '')).toBe(true)
+  })
+
+  it('drops the pad when the transcript already fills the viewport', () => {
+    const header = new MeasuredChild(stub(['H']))
+    const transcript = new MeasuredChild(stub(['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']))
+    const chrome = new SessionChrome(
+      () => 10,
+      () => header.rows + transcript.rows,
+      stub(['E']),
+      stub(['F1', 'F2']),
+    )
+    const frame = stack(header, transcript, chrome, 40)
+    expect(frame).toEqual(['H', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'E', 'F1', 'F2'])
+  })
+
+  it('forwards invalidate, dispose, and setIgnoreTight', () => {
+    let invalidated = 0
+    let disposed = 0
+    let tight: boolean | undefined
+    const inner = stub(['X'], {
+      invalidate: () => { invalidated += 1 },
+      dispose: () => { disposed += 1 },
+      setIgnoreTight: (ignore) => { tight = ignore },
+    })
+    const measured = new MeasuredChild(inner)
+    measured.invalidate()
+    measured.setIgnoreTight(true)
+    measured.dispose()
+    expect(invalidated).toBe(1)
+    expect(disposed).toBe(1)
+    expect(tight).toBe(true)
+    expect(measured.children).toEqual([inner])
+
+    let editorInvalidated = 0
+    let footerDisposed = 0
+    const chrome = new SessionChrome(
+      () => 4,
+      () => 0,
+      stub(['E'], { invalidate: () => { editorInvalidated += 1 }, setIgnoreTight: () => {} }),
+      stub(['F'], { dispose: () => { footerDisposed += 1 } }),
+    )
+    chrome.invalidate()
+    chrome.setIgnoreTight(false)
+    chrome.dispose()
+    expect(editorInvalidated).toBe(1)
+    expect(footerDisposed).toBe(1)
+    expect(chrome.children).toHaveLength(2)
   })
 })

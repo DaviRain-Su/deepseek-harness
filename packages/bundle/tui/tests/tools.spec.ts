@@ -1,7 +1,7 @@
 /** Tool-card mapping of presentCall / presentResult views. */
 
 import { describe, expect, it } from 'vitest'
-import { visibleWidth } from '@earendil-works/pi-tui'
+import { visibleWidth } from '@oh-my-pi/pi-tui'
 import { ToolCard, linesForCall, linesForResult } from '../src/tools.ts'
 
 describe('linesForCall', () => {

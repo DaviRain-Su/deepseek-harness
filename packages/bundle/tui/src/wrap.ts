@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-tui/wrap
  */
 
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui'
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@oh-my-pi/pi-tui'
 
 /**
  * Split `text` into lines that each fit in `width` display columns.

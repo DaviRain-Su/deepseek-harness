@@ -89,6 +89,8 @@ const testIncludes = [
   'scripts/**/*.spec.ts',
 ]
 
+const tuiBunTests = ['packages/bundle/tui/tests/**']
+
 // The instrumented coverage gate sets this env; the exempt heavy suites then
 // run beside it uninstrumented (membership contract in scripts/coverage-exempt.ts).
 // A set-but-not-'1' value is a misconfiguration, not a silent no-op.
@@ -120,7 +122,7 @@ export default defineConfig({
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
-    exclude: windowsUnsupportedTests,
+    exclude: [...windowsUnsupportedTests, ...tuiBunTests],
     // One coverage invocation aggregates both projects. Every suite forks for
     // Node stability; process-bound suites stay separate for inventory control.
     projects: [
@@ -137,6 +139,7 @@ export default defineConfig({
           include: testIncludes,
           exclude: [
             ...windowsUnsupportedTests,
+            ...tuiBunTests,
             ...processBoundTests,
             ...coverageExemptExcludes,
           ],
@@ -152,6 +155,7 @@ export default defineConfig({
           include: processBoundTests,
           exclude: [
             ...windowsUnsupportedTests,
+            ...tuiBunTests,
             ...coverageExemptExcludes,
           ],
         },
@@ -170,6 +174,9 @@ export default defineConfig({
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
+        // The interactive TUI engine is bun-only (`@oh-my-pi/pi-tui`); Node
+        // coverage never imports this tree. `pnpm run test:tui` owns it.
+        'packages/bundle/tui/src/**',
         // Dynamic Host/Client composition is covered by its focused lifecycle
         // tests and assembled application checks rather than per-file coverage.
         'packages/self-modification/*/src/**/*.{ts,tsx}',

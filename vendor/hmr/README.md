@@ -17,8 +17,7 @@ spelling even when Windows supplied an 8.3 alias.
 
 - `@cordisjs/plugin-loader`
 - `@cordisjs/plugin-timer`
-- A runtime that exposes Node's internal module loader. The package throws if
-  the loader service has no internal module loader available.
+- Module reload (`root` non-empty) needs Node's internal ESM loader (`loader.internal`). Exact-config watching with `root: []` does not.
 
 ## Usage
 

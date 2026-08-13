@@ -203,7 +203,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('duplication', 'duplication'),
       ]
     case 'ci-coverage':
-      return coverageGates()
+      return [...coverageGates(), bunTuiTestGate()]
     case 'ci-snapshot':
       return [pnpmScript('build', 'build'), snapshotGate()]
     case 'ci-artifacts':
@@ -224,6 +224,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test'),
+        bunTuiTestGate(),
         pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
@@ -515,6 +516,10 @@ function coverageGates(): Gate[] {
       label: 'test:coverage-exempt-heavy',
     }),
   ]
+}
+
+function bunTuiTestGate(): Gate {
+  return pnpmScript('tui-bun-test', 'test:tui', { label: 'tui bun tests' })
 }
 
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,

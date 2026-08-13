@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
-import type { TUI } from '@earendil-works/pi-tui'
+import type { TUI } from '@oh-my-pi/pi-tui'
 import { QuestionForm, createQuestionProvider } from '../src/questions.ts'
 
 describe('QuestionForm', () => {

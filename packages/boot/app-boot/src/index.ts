@@ -737,7 +737,9 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * partial context; a missing fiber or never-activating entry is rejected by
  * the final audit, {@link assertEntriesActivated}, which rethrows a plugin's
  * init rejection with its original stack; later unhandled rejections remain
- * covered by {@link installFailLoud}. Built bins need the Loader's native
+ * covered by {@link installFailLoud}. Concurrent entry failures arrive as an
+ * `AggregateError` whose members live on `.errors`, not `.cause`; the labelled
+ * rejection lists every member. Built bins need the Loader's native
  * helper for bare plugin specifiers; relative specifiers do not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
@@ -788,17 +790,34 @@ export async function boot(
     // fiber.ts hardening) and a repeated call returns the settled single-shot
     // result, so this await cannot reject and replace `cause`.
     await ctx.fiber.dispose()
-    const detail = cause instanceof Error ? cause.message : String(cause)
-    // The transactional Loader wraps a failing entry apply in one message per
-    // tree layer; every layer's message is folded into `detail` above, and the
-    // deepest cause is the plugin's own thrown error, whose stack names the
-    // real failure site — append it so the startup diagnostic preserves the
-    // original activation error instead of only the wrap chain.
-    let deepest: unknown = cause
-    while (deepest instanceof Error && deepest.cause !== undefined) deepest = deepest.cause
-    const stack = deepest instanceof Error && deepest !== cause ? `\n${deepest.stack ?? deepest.message}` : ''
-    throw new Error(`${binName}: ${stage}: ${detail}${stack}`, { cause })
+    throw new Error(`${binName}: ${stage}: ${loadFailureDetail(cause)}`, { cause })
   }
+}
+
+/**
+ * Render a boot failure so concurrent loader-entry failures stay named.
+ * The Loader puts sibling failures on `AggregateError.errors`, not `cause`.
+ * @param value - the thrown value from host preparation or tree mount.
+ * @returns the outer message, then each AggregateError member, then the
+ * deepest non-aggregate cause stack when that stack names a different site.
+ */
+function loadFailureDetail(value: unknown): string {
+  if (!(value instanceof Error)) return String(value)
+  if (value instanceof AggregateError) {
+    return [value.message, ...value.errors.map(inner => indentFailure(loadFailureDetail(inner)))].join('\n')
+  }
+  if (value.cause instanceof AggregateError) {
+    return [value.message, ...value.cause.errors.map(inner => indentFailure(loadFailureDetail(inner)))].join('\n')
+  }
+  let deepest: unknown = value
+  while (deepest instanceof Error && deepest.cause !== undefined) deepest = deepest.cause
+  const stack = deepest instanceof Error && deepest !== value ? `\n${deepest.stack ?? deepest.message}` : ''
+  return `${value.message}${stack}`
+}
+
+/** Prefix a nested failure: first line as a bullet, continuation indented. */
+function indentFailure(text: string): string {
+  return text.split('\n').map((line, index) => index === 0 ? `- ${line}` : `  ${line}`).join('\n')
 }
 
 /** Prompt-section name for the harness-source location line an app bin adds after boot. */

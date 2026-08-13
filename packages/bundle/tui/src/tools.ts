@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-tui/tools
  */
 
-import { Box, truncateToWidth, type Component } from '@earendil-works/pi-tui'
+import { Box, truncateToWidth, type Component } from '@oh-my-pi/pi-tui'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { bg, bold, fg, TUI_COLOR } from './theme.ts'
@@ -104,6 +104,18 @@ export class ToolCard implements Component {
       render: (width: number) => this.innerLines(width),
       invalidate: () => {},
     })
+  }
+
+  /**
+   * Replace the pending card's title and body in place, keeping the pending
+   * background: live progress such as a subagent run's activity feed.
+   * @param title - the current marker line.
+   * @param body - unwrapped detail rows.
+   */
+  update(title: string, body: string[]): void {
+    this.title = title
+    this.body = body
+    this.box.invalidate()
   }
 
   /**

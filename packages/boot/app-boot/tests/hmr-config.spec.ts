@@ -199,4 +199,45 @@ describe('HMR exact config paths', () => {
       await ctx.fiber.dispose()
     }
   })
+
+  it('starts exact-config watching without Node module internals', { timeout: 20_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hmr-config-no-internal-'))
+    const filename = join(dir, 'plugins.yml')
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(dir).href + '/'
+    await ctx.plugin(Loader)
+    await ctx.plugin(Timer)
+    ctx.loader.internal = undefined
+    await ctx.plugin(Hmr, { root: [], ignored: [], debounce: 0 })
+    const observed: string[] = []
+    try {
+      await ctx.hmr.registerConfig(filename, () => {
+        try {
+          observed.push(readFileSync(filename, 'utf8'))
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          observed.push('missing')
+        }
+      })
+      writeFileSync(filename, 'one', { flag: 'wx' })
+      await eventually(() => observed.includes('one'), 'HMR did not observe config creation without internals')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('still requires internals when module roots are configured', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-hmr-module-internal-'))
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(dir).href + '/'
+    await ctx.plugin(Loader)
+    await ctx.plugin(Timer)
+    ctx.loader.internal = undefined
+    try {
+      await expect(ctx.plugin(Hmr, { root: ['.'], ignored: [], debounce: 0 }))
+        .rejects.toThrow('--expose-internals is required for HMR service')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
 })

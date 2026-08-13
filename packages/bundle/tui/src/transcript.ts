@@ -3,11 +3,11 @@
  * @module @deepseek-ai/dsh-tui/transcript
  */
 
-import { Container, Text } from '@earendil-works/pi-tui'
+import { Container, Text } from '@oh-my-pi/pi-tui'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolDefinition, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
-import { AssistantMessageBlock, UserMessageBlock } from './messages.ts'
+import { AssistantMessageBlock, ThinkingBlock, UserMessageBlock } from './messages.ts'
 import { fg, TUI_COLOR } from './theme.ts'
 import { ToolCard, linesForCall, linesForResult } from './tools.ts'
 
@@ -47,12 +47,13 @@ export function extractText(blocks: readonly ContentBlock[]): string {
 }
 
 /**
- * Live transcript container: user Markdown, streaming assistant Markdown, and
- * in-place tool cards keyed by call id.
+ * Live transcript container: user Markdown, streamed reasoning then assistant
+ * Markdown, and in-place tool cards keyed by call id.
  */
 export class TranscriptView {
   /** The pi-tui child tree mounted under the session header. */
   readonly container = new Container()
+  private thinking: ThinkingBlock | undefined
   private stream: AssistantMessageBlock | undefined
   private streamed = false
   private readonly pending = new Map<string, PendingTool>()
@@ -78,6 +79,17 @@ export class TranscriptView {
   applyEvent(event: SessionEvent, replay: boolean): void {
     if (!replay && event.type === 'assistant/chunk') {
       const chunk = event.data.chunk
+      if (chunk.type === 'reasoning-delta') {
+        if (chunk.text === '') return
+        if (this.thinking === undefined) {
+          this.thinking = new ThinkingBlock(chunk.text)
+          this.container.addChild(this.thinking)
+        } else {
+          this.thinking.append(chunk.text)
+        }
+        this.streamed = true
+        return
+      }
       if (chunk.type !== 'text-delta' || chunk.text === '') return
       if (this.stream === undefined) {
         this.stream = new AssistantMessageBlock(chunk.text)
@@ -91,6 +103,7 @@ export class TranscriptView {
     if (!replay && event.type === 'assistant/message' && this.streamed) {
       this.streamed = false
       this.stream = undefined
+      this.thinking = undefined
       return
     }
     if (event.type === 'user/message') {
@@ -98,15 +111,14 @@ export class TranscriptView {
       const text = extractText(event.data.content)
       if (text === '') return
       this.stream = undefined
+      this.thinking = undefined
       this.streamed = false
       this.container.addChild(new UserMessageBlock(text))
       return
     }
     if (event.type === 'assistant/message') {
       if (!replay) return
-      const text = extractText(event.data.message.content)
-      if (text === '') return
-      this.container.addChild(new AssistantMessageBlock(text))
+      this.addAssembledAssistant(event.data.message.content)
       return
     }
     if (event.type === 'tool/call') {
@@ -115,6 +127,25 @@ export class TranscriptView {
     }
     if (event.type === 'tool/result') {
       this.completeTool(event)
+    }
+  }
+
+  /**
+   * Replay an assembled assistant message as reasoning then answer blocks.
+   * @param blocks - the durable assistant content.
+   */
+  private addAssembledAssistant(blocks: readonly ContentBlock[]): void {
+    for (const block of blocks) {
+      switch (block.type) {
+        case 'reasoning':
+          if (block.text !== '') this.container.addChild(new ThinkingBlock(block.text))
+          break
+        case 'text':
+          if (block.text !== '') this.container.addChild(new AssistantMessageBlock(block.text))
+          break
+        default:
+          break
+      }
     }
   }
 
@@ -178,6 +209,19 @@ function presentCall(tool: ToolDefinition | undefined, name: string, args: unkno
     // A throwing presenter must not crash the TTY; the generic card still names the tool.
     return { card: 'generic', title: name }
   }
+}
+
+/**
+ * Resolve one `tool/call` presentation intent for any transcript surface, so
+ * the parent transcript and subagent activity feeds share the generic fallback
+ * and corrupt-JSON tolerance.
+ * @param lookup - tool definition resolver for the calling agent's scope.
+ * @param name - the called tool name.
+ * @param raw - the raw `tool/call` arguments payload.
+ * @returns the tool's `presentCall` intent, or a generic card naming the tool.
+ */
+export function presentToolCall(lookup: ToolLookup, name: string, raw: string): ToolCallView {
+  return presentCall(lookup(name), name, parseArgs(raw))
 }
 
 function presentResult(

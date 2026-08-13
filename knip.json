@@ -4,6 +4,7 @@
     "duplicates"
   ],
   "ignoreBinaries": [
+    "bun",
     "bwrap",
     "icacls",
     "musl-gcc",
@@ -779,8 +780,16 @@
       ]
     },
     "packages/bundle/tui": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-code-runtime-worker-thread"
+        "@deepseek-ai/dsh-code-runtime-worker-thread",
+        "@types/bun"
       ]
     },
     "packages/bundle/web-app": {

@@ -2,9 +2,9 @@
  * In-memory {@link Terminal} for TUI tests: captures writes and replays input.
  */
 
-import type { Terminal } from '@earendil-works/pi-tui'
+import type { Terminal, TerminalAppearance } from '@oh-my-pi/pi-tui'
 
-/** Captured TTY used by TuiMainScreen in package tests. */
+/** Captured TTY used by TUI in package tests. */
 export class FakeTerminal implements Terminal {
   /** Bytes written by the renderer. */
   output = ''
@@ -12,6 +12,8 @@ export class FakeTerminal implements Terminal {
   private onResize: (() => void) | undefined
   private started = false
   kittyProtocolActive = false
+  kittyEnableSequence: string | null = null
+  appearance: TerminalAppearance | undefined
 
   constructor(
     readonly columns = 80,
@@ -22,8 +24,9 @@ export class FakeTerminal implements Terminal {
    * Begin delivering input and resize callbacks.
    * @param onInput - key sequence handler.
    * @param onResize - dimension-change handler.
+   * @param _onDisconnect - unused; the fake never disconnects.
    */
-  start(onInput: (data: string) => void, onResize: () => void): void {
+  start(onInput: (data: string) => void, onResize: () => void, _onDisconnect?: () => void): void {
     this.started = true
     this.onInput = onInput
     this.onResize = onResize
@@ -69,11 +72,14 @@ export class FakeTerminal implements Terminal {
   }
 
   moveBy(_lines: number): void {}
-  hideCursor(): void {}
-  showCursor(): void {}
+  hideCursor(_force?: boolean): void {}
+  showCursor(_force?: boolean): void {}
   clearLine(): void {}
   clearFromCursor(): void {}
   clearScreen(): void {}
   setTitle(_title: string): void {}
   setProgress(_active: boolean): void {}
+  onAppearanceChange(
+    _callback: (appearance: TerminalAppearance) => void,
+  ): void {}
 }
