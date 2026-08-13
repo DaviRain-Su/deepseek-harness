@@ -12,6 +12,7 @@
  * @module dsh-llm-pi-ai/catalog
  */
 
+import { findEnvKeys } from '@earendil-works/pi-ai/compat'
 import { builtinProviders, getBuiltinModels, getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
 import type {
@@ -159,6 +160,21 @@ export function catalogProviderIds(): readonly string[] {
  */
 export function catalogProviderTakesApiKey(provider: string): boolean {
   return catalogProvider(provider)?.auth.apiKey !== undefined
+}
+
+/**
+ * The first ambient API-key environment variable already set for one catalog
+ * provider. The catalog route `deepseek` is withheld: the official adapter
+ * already serves `DEEPSEEK_API_KEY` as `deepseek-official`, and a second
+ * DeepSeek route in `/model` would duplicate it.
+ * @param provider - provider route key.
+ * @returns the env var name to use as `apiKeyEnv`, or undefined when this
+ *   adapter should not auto-register the route.
+ */
+export function catalogAmbientApiKeyEnv(provider: string): string | undefined {
+  if (provider === 'deepseek') return undefined
+  if (!catalogProviderTakesApiKey(provider)) return undefined
+  return findEnvKeys(provider)?.[0]
 }
 
 /**

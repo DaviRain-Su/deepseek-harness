@@ -78,6 +78,7 @@ export type {
   PiAiReasoningEfforts,
   PiAiThinkingFormat,
   ResolvedPiAiProviderProfile,
+  ResolveConfigOptions,
 } from './config.ts'
 export { supportedProtocols } from './provider.ts'
 
@@ -167,7 +168,7 @@ export function apply(ctx: Context, config: Config): void {
   const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = current()
     if (raw === lastRaw && memoized !== undefined) return memoized
-    const next = resolveConfig(raw)
+    const next = resolveConfig(raw, { ambientCatalog: true })
     lastRaw = raw
     memoized = next
     return next
@@ -248,8 +249,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.llm.registerModelDiscovery(NS, request => discoverModels(request, () => storedApiKey(request.provider)))
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below. A bare
-  // mount (zero routes) is the dormant posture: nothing registers until a
-  // settings section supplies profiles, and routes drop when it empties.
+  // mount with no ambient keys is the zero-route posture; catalog providers
+  // whose API-key env vars are already set, and `ollama-cloud` when
+  // `OLLAMA_API_KEY` is set, register immediately, and a settings section
+  // supplies or overrides the rest.
   let registration: AdapterRegistrationHandle | undefined
   let registeredFacts: unknown
   const ensureRegistrationFacts = (): void => {

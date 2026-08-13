@@ -22,6 +22,7 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import {
+  catalogAmbientApiKeyEnv,
   catalogProviderIds,
   catalogProviderTakesApiKey,
   MODALITIES,
@@ -36,6 +37,7 @@ import type {
   PiAiModelProfile,
   PiAiReasoningEfforts,
 } from './catalog.ts'
+import { ambientOllamaCloudProfile, OLLAMA_CLOUD_ROUTE } from './ollama-cloud.ts'
 import { buildProvider, supportedProtocols } from './provider.ts'
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
@@ -145,6 +147,13 @@ export interface PiAiProviderProfile {
   streamIdleTimeoutMs?: number
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
+  /**
+   * Interrogate the route's OpenAI-compatible `GET /models` from `listModels`,
+   * and resolve an id the snapshot catalog does not name. Not a settings
+   * field: the schema omits it, so a written profile cannot set it. Ambient
+   * Ollama Cloud is the only producer.
+   */
+  listsFromEndpoint?: boolean
 }
 
 /** Validated profile with its route stamped and every adapter-owned default resolved. */
@@ -178,19 +187,34 @@ export interface ResolvedPiAiProviderProfile
 /** Plugin configuration: the provider routes this instance owns. */
 export interface Config {
   /**
-   * pi-ai provider routes, keyed by provider. An empty (or omitted) dict is
-   * the dormant settings-driven posture: the adapter mounts with no routes
-   * and registers them the moment a settings section supplies profiles.
+   * pi-ai provider routes, keyed by provider. An empty (or omitted) dict
+   * writes no routes; plugin apply still registers catalog providers whose
+   * ambient API keys are already set, plus `ollama-cloud` when
+   * `OLLAMA_API_KEY` is set, and a settings section supplies or overrides
+   * the rest.
    */
   providers?: Record<string, PiAiProviderProfile>
   /**
    * When true, every installed catalog provider that takes an API key is
    * registered as a route (ambient discovery when `apiKeyEnv` is omitted).
    * Explicit `providers` entries override the matching catalog stub. Default
-   * false keeps shipped compositions dormant until a settings section supplies
-   * routes.
+   * false keeps the written section from dumping the catalog; plugin apply
+   * still auto-registers providers whose ambient API keys are already set.
    */
   enableInstalledCatalog?: boolean
+}
+
+/**
+ * Extra expansion the plugin apply path requests. The settings validator
+ * omits it so a written section is judged on its own routes.
+ */
+export interface ResolveConfigOptions {
+  /**
+   * Register installed catalog providers whose ambient API-key environment
+   * variables are already set, plus `ollama-cloud` when `OLLAMA_API_KEY` is
+   * set. Explicit `providers` entries still win.
+   */
+  ambientCatalog?: boolean
 }
 
 const thinkingBudgets = z.object({
@@ -289,30 +313,53 @@ export function assertServiceable(config: Config): void {
 }
 
 /**
- * Catalog stubs plus explicit `providers` entries. A settings profile for the
- * same route wins; OAuth-only catalog providers stay out because this adapter
- * has no login flow.
+ * Catalog stubs, the ambient Ollama Cloud route, and explicit `providers`
+ * entries. A settings profile for the same route wins; OAuth-only catalog
+ * providers stay out because this adapter has no login flow.
  * @param config - plugin or settings section.
+ * @param options - apply-path ambient expansion; omitted for settings validation.
  * @returns the route dict `resolveProfiles` materializes.
  */
-export function expandInstalledCatalog(config: Config): Record<string, PiAiProviderProfile> {
+export function expandInstalledCatalog(
+  config: Config,
+  options?: ResolveConfigOptions,
+): Record<string, PiAiProviderProfile> {
   const providers: Record<string, PiAiProviderProfile> = { ...config.providers }
-  if (config.enableInstalledCatalog !== true) return providers
-  for (const id of catalogProviderIds()) {
-    if (!catalogProviderTakesApiKey(id)) continue
-    if (providers[id] === undefined) providers[id] = {}
+  if (config.enableInstalledCatalog === true) {
+    for (const id of catalogProviderIds()) {
+      if (!catalogProviderTakesApiKey(id)) continue
+      if (providers[id] === undefined) providers[id] = {}
+    }
+  } else if (options?.ambientCatalog === true) {
+    for (const id of catalogProviderIds()) {
+      if (providers[id] !== undefined) continue
+      const apiKeyEnv = catalogAmbientApiKeyEnv(id)
+      if (apiKeyEnv === undefined) continue
+      providers[id] = { apiKeyEnv }
+    }
+  }
+  // Not a catalog id, so it is independent of the dump flag: a set
+  // `OLLAMA_API_KEY` still registers Cloud when the dump is on.
+  if (options?.ambientCatalog === true && providers[OLLAMA_CLOUD_ROUTE] === undefined) {
+    const stub = ambientOllamaCloudProfile()
+    if (stub !== undefined) providers[OLLAMA_CLOUD_ROUTE] = stub
   }
   return providers
 }
 
 /**
  * Resolve the live route set from a full plugin config, including catalog
- * expansion when {@link Config.enableInstalledCatalog} is true.
+ * expansion when {@link Config.enableInstalledCatalog} is true and optional
+ * ambient-key registration.
  * @param config - plugin or settings section.
+ * @param options - apply-path ambient expansion; omitted for settings validation.
  * @returns validated profiles in configuration order.
  */
-export function resolveConfig(config: Config): Map<string, ResolvedPiAiProviderProfile> {
-  return resolveProfiles(expandInstalledCatalog(config))
+export function resolveConfig(
+  config: Config,
+  options?: ResolveConfigOptions,
+): Map<string, ResolvedPiAiProviderProfile> {
+  return resolveProfiles(expandInstalledCatalog(config, options))
 }
 
 /** Reject removed pre-release profile fields and name their replacements. */

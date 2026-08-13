@@ -14,6 +14,7 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { resolveProfiles, resolveConfig } from '../src/config.ts'
 import { assemble } from './assemble.ts'
+import { clearAmbientCatalogEnv } from './ambient.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 afterEach(async () => {
@@ -51,6 +52,7 @@ function adapterOf(
 }
 
 beforeEach(() => {
+  clearAmbientCatalogEnv()
   // Configuration carries only the reference; these mounts resolve it from
   // the environment, which is the whole credential plane without a seam.
   vi.stubEnv('PI_TEST_KEY', 'test-key')
@@ -724,6 +726,34 @@ describe('provider profile lifecycle', () => {
     })
     expect(overlay.get('openai')?.apiKeyEnv).toBeDefined()
     expect(overlay.size).toBe(resolved.size)
+  })
+
+  it('registers catalog providers whose ambient API keys are already set', async () => {
+    expect(resolveConfig({}, { ambientCatalog: true }).size).toBe(0)
+    vi.stubEnv('MOONSHOT_API_KEY', 'kimi-key')
+    vi.stubEnv('KIMI_API_KEY', 'kimi-coding-key')
+    vi.stubEnv('OPENCODE_API_KEY', 'opencode-key')
+    vi.stubEnv('DEEPSEEK_API_KEY', 'official-key')
+    const resolved = resolveConfig({}, { ambientCatalog: true })
+    expect(resolved.has('moonshotai')).toBe(true)
+    expect(resolved.has('moonshotai-cn')).toBe(true)
+    expect(resolved.has('kimi-coding')).toBe(true)
+    expect(resolved.has('opencode')).toBe(true)
+    expect(resolved.has('opencode-go')).toBe(true)
+    expect(resolved.get('moonshotai')?.apiKeyEnv).toBeDefined()
+    // The official adapter already serves DEEPSEEK_API_KEY.
+    expect(resolved.has('deepseek')).toBe(false)
+    const overlay = resolveConfig({
+      providers: { moonshotai: { apiKeyEnv: 'CUSTOM_MOONSHOT_REF' } },
+    }, { ambientCatalog: true })
+    expect(overlay.get('moonshotai')?.apiKeyEnv).toBeDefined()
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {})
+    const ids = ctx.llm.listProviders().map(provider => provider.id)
+    expect(ids).toEqual(expect.arrayContaining(['moonshotai', 'kimi-coding', 'opencode']))
+    expect(ids).not.toContain('deepseek')
+    await ctx.fiber.dispose()
   })
 
   it('registers catalog routes on the llm runtime when enableInstalledCatalog is true', async () => {

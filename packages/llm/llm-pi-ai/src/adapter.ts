@@ -49,9 +49,39 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { resolveRouteModels } from './catalog.ts'
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_INPUT,
+  DEFAULT_MAX_TOKENS,
+} from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import { discoverModels } from './discovery.ts'
 import { toStreamChunks } from './stream.ts'
+
+/**
+ * A pi-ai `Model` for an id this route's snapshot catalog does not name.
+ * Capacities are the route defaults: a listing endpoint does not author the
+ * request path, and `listModels` is advisory.
+ */
+function endpointCatalogModel(profile: ResolvedPiAiProviderProfile, id: string): Model<Api> {
+  const model = resolveRouteModels({
+    provider: profile.provider,
+    ...profile.api === undefined ? {} : { api: profile.api },
+    ...profile.baseURL === undefined ? {} : { baseURL: profile.baseURL },
+    models: [{ id }],
+    defaultInput: [...profile.defaultInput ?? DEFAULT_INPUT],
+    defaultContextWindow: profile.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
+    defaultMaxTokens: profile.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+    ...profile.compat === undefined ? {} : { compat: profile.compat },
+  }).models[0]
+  /* v8 ignore next 3 -- resolveRouteModels either throws or returns one model per entry. */
+  if (model === undefined) {
+    throw new LlmError(`pi-ai provider "${profile.provider}" has no configured model "${id}"`, 'UNKNOWN_MODEL')
+  }
+  return model
+}
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -216,12 +246,11 @@ export class PiAiAdapter extends LlmAdapter {
 
   /** The configured descriptor for one exact route/model pair within one snapshot. */
   private modelOf(snapshot: PiAiSnapshot, provider: string, model: string): Model<Api> {
-    this.profileOf(snapshot, provider)
+    const profile = this.profileOf(snapshot, provider)
     const resolved = snapshot.models.getModel(provider, model)
-    if (resolved === undefined) {
-      throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
-    }
-    return resolved
+    if (resolved !== undefined) return resolved
+    if (profile.listsFromEndpoint === true) return endpointCatalogModel(profile, model)
+    throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
   }
 
   override providerInfo(provider: string): LlmProviderInfo {
@@ -236,9 +265,31 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
       const snapshot = this.current()
-      this.profileOf(snapshot, provider)
+      const profile = this.profileOf(snapshot, provider)
+      if (profile.listsFromEndpoint === true) {
+        try {
+          const discovered = await discoverModels({
+            provider,
+            ...profile.api === undefined ? {} : { api: profile.api },
+            ...profile.baseURL === undefined ? {} : { baseURL: profile.baseURL },
+          }, () => this.config.resolveApiKey(provider, profile))
+          if (discovered.length > 0) {
+            const inputModalities = [...(profile.defaultInput ?? DEFAULT_INPUT)]
+            return discovered.map(model => ({
+              provider,
+              id: model.id,
+              name: model.name ?? model.id,
+              inputModalities,
+            }))
+          }
+        } catch {
+          // Unreachable endpoint, non-2xx, or a reply that is not a model
+          // listing. The seed catalog remains what selectors offer so the
+          // route stays visible.
+        }
+      }
       return snapshot.models.getModels(provider).map(model => ({
         provider,
         id: model.id,

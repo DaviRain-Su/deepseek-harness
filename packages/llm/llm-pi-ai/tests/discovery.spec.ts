@@ -1,20 +1,26 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { discoverModels } from '../src/discovery.ts'
+import { clearAmbientCatalogEnv } from './ambient.ts'
 
 const servers: Server[] = []
 /** Credential variables a test set, cleared so the next one starts unset. */
 const touchedEnv: string[] = []
 
+beforeEach(() => {
+  clearAmbientCatalogEnv()
+})
+
 afterEach(async () => {
   // A no-op when the test never stubbed `fetch`; only 'probe key format'
   // below installs one.
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   for (const name of touchedEnv.splice(0)) Reflect.deleteProperty(process.env, name)
   await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
 })

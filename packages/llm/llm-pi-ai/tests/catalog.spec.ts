@@ -15,6 +15,7 @@ import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-wo
 import { resolveProfiles } from '../src/config.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
+import { clearAmbientCatalogEnv } from './ambient.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const homes: string[] = []
@@ -25,6 +26,7 @@ const homes: string[] = []
 const KEY_ENV = 'PI_TEST_KEY'
 
 beforeEach(() => {
+  clearAmbientCatalogEnv()
   vi.stubEnv(KEY_ENV, 'test-key')
 })
 

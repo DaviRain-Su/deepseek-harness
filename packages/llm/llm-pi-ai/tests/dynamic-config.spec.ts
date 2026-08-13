@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -10,6 +10,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { FileSettingsProvider } from '@deepseek-ai/dsh-settings-file'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
+import { clearAmbientCatalogEnv } from './ambient.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const NS = settingsNamespace('llm-pi-ai')
@@ -23,6 +24,10 @@ class StubAdapter extends LlmAdapter {
 }
 
 const cleanups: Array<() => Promise<void>> = []
+
+beforeEach(() => {
+  clearAmbientCatalogEnv()
+})
 
 afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()

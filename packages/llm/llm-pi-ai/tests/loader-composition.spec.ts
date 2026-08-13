@@ -21,6 +21,7 @@ import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
+import { clearAmbientCatalogEnv } from './ambient.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 let root: string | undefined
@@ -89,6 +90,7 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
 
 describe('llm-pi-ai real dormant composition', () => {
   it('boots with zero routes and registers one the moment settings supply a profile', async () => {
+    clearAmbientCatalogEnv()
     vi.stubEnv('PI_COMPOSITION_KEY', '')
     const server = await mockServer([{ events: textEvents }])
     const { ctx, settingsPath } = await loadComposition()
