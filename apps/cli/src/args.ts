@@ -7,8 +7,9 @@
  * their own flag families and print their own `--help` (see
  * `@deepseek-ai/dsh-cmdline`). Launcher flags therefore come first: the first
  * token this parser does not recognize starts the inner arguments, so
- * `dsh --profile tui --resume abc` boots the tui profile with `--resume abc`,
+ * `dsh --resume abc` boots the tui profile with `--resume abc`,
  * and `dsh --profile web -h` prints the web app's help, not this one's.
+ * Omitting `--profile` boots the interactive terminal (`tui`).
  *
  * `web` is a hardcoded alias for `--profile web`; `plugin` manages a profile's
  * plugin dependencies by forwarding to pnpm.
@@ -60,15 +61,21 @@ interface BootOptions {
  */
 const collect = (value: string, previous: string[] = []): string[] => [...previous, value]
 
+/** Profile booted when the invocation omits `--profile`. */
+export const DEFAULT_BOOT_PROFILE = 'tui'
+
 /** The launcher's own help text; each app prints its own. */
 const HELP_EXAMPLES = `
 Examples:
-  dsh --profile web                          boot the web profile (same as: dsh web)
-  dsh --profile headless "run the tests"     answer one task, print the result, and exit
-  dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
-  dsh --profile tui --resume <session>       arguments after the launcher flags reach the app
-  dsh --profile web --help                   the web app's own flags and help
-  dsh plugin --profile tui add <package>     install a plugin into the tui profile
+  dsh                                    start an interactive terminal session
+  dsh --resume <session>                 resume a persisted terminal session
+  dsh --profile tui                      same as bare dsh
+  dsh --profile web                      boot the web profile (same as: dsh web)
+  dsh --profile headless "run the tests" answer one task, print the result, and exit
+  dsh --profile web --patch ./extra.yml  extra overlay after the profile layer
+  dsh --profile web --help               the web app's own flags and help
+  dsh --help                             this launcher help
+  dsh plugin --profile tui add <package> install a plugin into the tui profile
 `
 
 /**
@@ -122,7 +129,7 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .exitOverride()
     // The launcher's flags come first and end at the first token it does not
     // know; everything from there on belongs to the booted app, including
-    // its -h. `dsh -h` with no profile still prints this help, below.
+    // its -h. `dsh -h` without `--profile` still prints this help, below.
     .helpOption(false)
     .allowUnknownOption()
     .passThroughOptions()
@@ -133,11 +140,11 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .option('--dump-config', 'print the composed profile tree and exit')
     .option('--dump-default-config', 'print the profile tree without its user layer or --patch overlays and exit')
     .action((args: string[], options: BootOptions & { profile?: string }) => {
-      // With the app owning -h, the launcher's own help is what a bare
-      // `dsh -h` (no profile to hand it to) must print.
+      // With the app owning -h, a bare `dsh -h` still prints this launcher
+      // help so web, headless, and plugin remain discoverable.
       if (options.profile === undefined) {
         if (args.some(argument => argument === '-h' || argument === '--help')) program.help()
-        program.error('error: --profile <name> is required')
+        options.profile = DEFAULT_BOOT_PROFILE
       }
       const profile = options.profile
       if (profile === '') program.error('error: --profile needs a name')

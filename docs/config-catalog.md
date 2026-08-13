@@ -2796,6 +2796,22 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 
 Source: [`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/index.ts)
 
+<a id="deepseek-aidsh-tui"></a>
+
+## `@deepseek-ai/dsh-tui`
+
+Requires: `agentDefaultModel` · `agents` · `sessions` · `commands` · `userQuestions`
+
+```ts config-catalog
+/** Plugin config: the resume id resolved from this app's injected provider. */
+export interface Config {
+  /** Persisted session id; empty creates a fresh session. */
+  resume: string
+}
+```
+
+Source: [`packages/bundle/tui/src/index.ts:30`](../packages/bundle/tui/src/index.ts)
+
 <a id="deepseek-aidsh-typert-loader"></a>
 
 ## `@deepseek-ai/dsh-typert-loader`

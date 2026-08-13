@@ -310,17 +310,23 @@ function startStartupProfile(fixture: StartupFixture, args: readonly string[]) {
 }
 
 describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', () => {
-  it('requires --profile and rejects removed commands', async () => {
-    const bare = await runBuiltBin()
-    expect(bare.code).toBe(1)
-    expect(bare.stdout).toBe('')
-    expect(bare.stderr).toContain('--profile <name> is required')
+  it('defaults to the tui profile and rejects removed subcommands', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-app-default-'))
+    try {
+      const bare = await runBuiltBin([], { DSH_HOME: home })
+      expect(bare.code).toBe(1)
+      expect(bare.stdout).toBe('')
+      expect(bare.stderr).toContain('tui requires an interactive TTY')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
     const help = await runBuiltBin(['--help'])
     expect(help.code).toBe(0)
     expect(help.stdout).toContain('dsh --profile web')
     expect(help.stdout).toContain('dsh plugin --profile')
+    expect(help.stdout).toContain('start an interactive terminal session')
     expect(help.stdout).not.toMatch(/^\s+(?:tui|meta|upgrade)\b/mu)
-    for (const removed of [['tui'], ['--config', 'x.yml'], ['-p', 'task'], ['run', 'task']]) {
+    for (const removed of [['meta'], ['upgrade']]) {
       const result = await runBuiltBin(removed)
       expect(result.code).toBe(1)
     }
@@ -355,6 +361,15 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(headlessHelp.code).toBe(0)
       expect(headlessHelp.stderr).toBe('')
       expect(headlessHelp.stdout).toContain('Usage: dsh --profile headless')
+
+      const tuiHelp = await runBuiltBin(['--profile', 'tui', '--help'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(tuiHelp.code).toBe(0)
+      expect(tuiHelp.stderr).toBe('')
+      expect(tuiHelp.stdout).toContain('Usage: dsh')
+      expect(tuiHelp.stdout).toContain('--resume <session>')
 
       const missingTask = await runBuiltBin(['--profile', 'headless'], {
         DSH_HOME: home,
@@ -716,6 +731,19 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(code).toBe(0)
       expect(stderr).toBe('')
       expect(stdout).toContain("name: '@deepseek-ai/dsh-headless'")
+      expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-host-/)
+      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-web-app'")
+      expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-client-/)
+    }, 30_000)
+
+    it('prints the tui profile without Host or browser layers', async () => {
+      const { stdout, code, stderr } = await runBuiltBin(
+        ['--profile', 'tui', '--dump-default-config'],
+        { DSH_HOME: home },
+      )
+      expect(code).toBe(0)
+      expect(stderr).toBe('')
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-tui'")
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-host-/)
       expect(stdout).not.toContain("name: '@deepseek-ai/dsh-web-app'")
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-client-/)

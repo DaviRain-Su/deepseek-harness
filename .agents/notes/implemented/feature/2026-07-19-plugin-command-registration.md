@@ -36,15 +36,15 @@ Expected handler failures return `CommandResult.error`. Thrown or malformed resu
 
 ### TUI mapping
 
-The TUI registers its built-in slash commands as agent-scoped command definitions instead of switching on strings. Its autocomplete and help view read the live catalog, so plugin commands appear and disappear with their effects. Any submitted line beginning with `/` stays in the command plane; unknown input produces a terminal warning rather than falling through to `Agent.steer()`.
+The shipped [`dsh-tui`](../../../../packages/bundle/tui/README.md) bundle injects the service and registers `/help`, `/exit`, and `/quit` as command definitions. Its autocomplete and help view read the live catalog, so plugin commands appear and disappear with their effects. Any submitted line beginning with `/` stays in the command plane; unknown input produces a terminal warning rather than falling through to a model message.
 
-Each submitted command owns an `AbortController`. TUI disposal aborts outstanding dispatches, removes the local definitions, and waits for the command-producing fiber before completing teardown.
+TUI disposal aborts outstanding dispatches through the runtime's abort signal and stops pi-tui before requesting process exit.
 
 ## Testing
 
 The registry suite covers syntax boundaries, immutable normalization, runtime metadata validation, deterministic sorting, global and scoped shadowing, duplicate rejection, exact disposal, contained change-notification failures, direct invocation, expected and malformed results, synchronous and asynchronous failure, and every abort timing edge at per-file 100% statement, branch, function, and line coverage.
 
-TUI tests exercise all migrated built-ins, live plugin discovery, help/autocomplete refresh, direct results, unknown-command rejection, raw-input delivery, definition removal, startup rollback, and disposal cancellation. Keyless terminal snapshots pin the rendered help, error, and command-result shapes.
+The shipped TUI package tests cover slash dispatch, `/help` listing, unknown-command rejection, command error results, and `/exit` / `/quit`. Presentation is the package semantic matrix over FakeTerminal, not a keyless assembled TUI snapshot.
 
 ## Alternatives considered
 
@@ -68,4 +68,4 @@ TUI tests exercise all migrated built-ins, live plugin discovery, help/autocompl
 - Input metadata is limited to an unstructured text hint. Typed forms, argument schemas, and completion providers remain command-owned or require a later registry or consumer extension.
 - Generic command output is live-only and is not reconstructed after TUI restart.
 - Registry cancellation stops awaiting immediately, but external work stops only when a handler cooperates with its signal.
-- The ACP automation server, headless CLI, and JSON-RPC SDK entry points do not expose the command plane; only TUI consumes it.
+- The ACP automation server, headless CLI, and JSON-RPC SDK entry points do not expose the command plane; the shipped TUI consumes it. Web slash input uses a separate client pipeline.

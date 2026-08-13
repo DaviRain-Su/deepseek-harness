@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-删除 `packages/ui/tui` 包，不提供兼容包或别名。其源码、包测试、终端快照、依赖声明、已打补丁的 `pi-tui` 产物、workspace 引用、生成的服务目录条目和文档会一并移除。通用宿主能力与 agent loop（智能体循环）能力保持不变。
+删除 ui 组的 TUI 包，不提供兼容包或别名。其源码、包测试、终端快照、依赖声明、已打补丁的 `pi-tui` 产物、workspace 引用、生成的服务目录条目和文档会一并移除。通用宿主能力与 agent loop（智能体循环）能力保持不变。
 
 作为 TUI 包最后消费方的 SDK 项目工具链已由[工具链移除决策](2026-08-11-remove-sdk-project-toolchain.md)删除。宿主应用仍可直接挂载提供方无关的 `dsh-user-questions`、`dsh-commands` 和呈现服务。
 
@@ -34,6 +34,6 @@ Status: implemented
 
 ## 后果
 
-DeepSeek Harness 不再提供终端 UI 包。现有 import 和依赖该包的 `cordis.yml` 条目会直接失败，不会得到兼容转换。Web 仍是已交付的交互界面；ACP、JSON-RPC 与一次性 CLI 仍是 Web 之外的入口。
+ui 组的 TUI 包仍然删除：指向该路径的现有 import 和 `cordis.yml` 条目仍会失败，其打过补丁的 `pi-tui` 产物也不会恢复。随附的交互式终端是新组合包 `@deepseek-ai/dsh-tui`，位于 `packages/bundle/tui/`，由[随附 TUI profile](../feature/2026-08-13-shipped-tui-profile.md)记录。Web、ACP、JSON-RPC 与一次性 CLI 仍是其他入口。
 
-提供方无关的命令、用户交互、审批、工具呈现、PTY 与会话投影能力仍可供其他宿主使用。重新引入终端前端时，必须为其提供具名产品或部署、显式包边界、具体交互提供方，以及组装后的生命周期与 transcript（文本记录）验收。
+提供方无关的命令、用户交互、审批、工具呈现、PTY 与会话投影能力仍可供其他宿主使用。若要重新引入*那个*已删除的前端，仍必须提供具名产品、显式包边界、具体交互提供方，以及组装后的生命周期与 transcript（文本记录）验收；本记录不授权恢复已删除的 ui 组 TUI 目录树。
