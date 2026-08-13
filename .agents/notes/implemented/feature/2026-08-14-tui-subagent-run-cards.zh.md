@@ -15,7 +15,7 @@ TUI 之前完全看不见 subagent 的工作。`TranscriptView` 只折叠父会�
 - `subagent/start` 打开一张标题为 `⏵ subagent · <provider>` 的 pending `ToolCard`；子日志的 `subagent/descriptor` 事件追加后，标题换成其持久的 `label`。
 - tracker 按子会话 id 归键运行，把子日志的 `tool/call` 折叠成六行滚动活动 feed，展示走与父 transcript 相同的回退链（`presentToolCall` 现从 `transcript.ts` 导出；当 `ctx.agents` 仍持有子代理时，用活跃子代理解析工具定义）。失败的 `tool/result` 追加 `✗ <tool> failed`。
 - `subagent/end` 收尾卡片：标题加上 `— <stopReason>`，正文保留活动尾部加一行 `<n> tool calls · <reason>` 摘要，非 `completed` 的原因涂错误底色。`ToolCard` 为此新增 `update(title, body)` 以就地更新 pending 进度。
-- `SessionFooter.setSubagents` 在状态行加入 `<n> subagents running`；为零时隐藏。同一文案驱动窗口标题（空闲为 `dsh`，有运行时为 `dsh · <n> subagent(s) running`）和 `setProgress`。真正收尾一次活运行的 `subagent/end` 写入 C0 BEL（`\a`）；重复与未知的 end 保持静音。拆卸在 `tui.stop()` 之前恢复空闲标题并清除进度。
+- `SessionFooter.setSubagents` 在状态行加入 `<n> subagents running`；为零时隐藏。同一文案驱动窗口标题（空闲为 `dsh`，有运行时为 `dsh · <n> subagent(s) running`）和 OSC 进度（父轮次忙碌时也会打开）。真正收尾一次活运行的 `subagent/end` 写入 C0 BEL（`\a`）；重复与未知的 end 保持静音。拆卸在 `tui.stop()` 之前恢复空闲标题并清除进度。
 - `TuiApp` 以非 scoped 方式监听 `subagent/start` / `subagent/end`（与 `hooks-claude-code` 相同的模式），并把非父会话的 `session/event` 路由给 tracker。嵌套委派与父代理的同级运行平铺渲染，而不是嵌在父卡片下。
 
 ## 备选方案

@@ -53,6 +53,7 @@ export class AssistantMessageBlock implements Component {
   constructor(text: string) {
     this.text = text
     this.markdown = new Markdown(text, 1, 0, TUI_MARKDOWN_THEME)
+    this.markdown.transientRenderCache = true
   }
 
   /**
@@ -62,6 +63,13 @@ export class AssistantMessageBlock implements Component {
   append(delta: string): void {
     this.text += delta
     this.markdown.setText(this.text)
+  }
+
+  /**
+   * End streaming cache so the settled answer can reuse Markdown's full render cache.
+   */
+  settle(): void {
+    this.markdown.transientRenderCache = false
   }
 
   /**

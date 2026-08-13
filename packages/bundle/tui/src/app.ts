@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   Editor,
+  Loader,
   ProcessTerminal,
   TUI,
   matchesKey,
@@ -35,8 +36,11 @@ import { SubagentTracker } from './subagents.ts'
 import {
   applyTuiTheme,
   currentTuiThemeId,
+  fg,
   listTuiThemes,
+  TUI_COLOR,
   TUI_EDITOR_THEME,
+  TUI_SYMBOL_THEME,
 } from './theme.ts'
 import { TranscriptView, extractText } from './transcript.ts'
 
@@ -75,7 +79,11 @@ export class TuiApp {
   private selection: ModelSelectionRef | undefined
   private overlay: OverlayHandle | undefined
   private readonly transcript = new TranscriptView(name => this.ctx.get('tools')?.get(name, this.agent))
+  private transcriptMount: MeasuredChild | undefined
   private readonly footer = new SessionFooter(process.cwd(), '')
+  private working: Loader | undefined
+  private busy = false
+  private subagentRunning = 0
   private stopped = false
   private exited = false
 
@@ -141,6 +149,7 @@ export class TuiApp {
     this.footer.setModel(modelLabel(selection.current))
     const header = new MeasuredChild(new SessionHeader(agent.id))
     const transcript = new MeasuredChild(this.transcript.container)
+    this.transcriptMount = transcript
     tui.addChild(header)
     tui.addChild(transcript)
     for (const event of agent.session.events) this.applyEvent(event, true)
@@ -159,7 +168,7 @@ export class TuiApp {
       if (matchesKey(data, 'ctrl+c')) {
         if (this.agent?.status === 'running') {
           this.agent.cancel({ kind: 'user' })
-          this.footer.setBusy(false)
+          this.setBusy(false)
           tui.requestRender()
         } else void this.quit(0)
         return { consume: true }
@@ -223,9 +232,10 @@ export class TuiApp {
       resolveAgent: id => this.ctx.get('agents')?.get(id),
       lookupTool: (name, scoped) => this.ctx.get('tools')?.get(name, scoped ?? agent),
       countChanged: (running) => {
+        this.subagentRunning = running
         this.footer.setSubagents(running)
         this.terminal?.setTitle(subagentWindowTitle(running))
-        this.terminal?.setProgress(running > 0)
+        this.syncProgress()
         this.tui?.requestRender()
       },
     })
@@ -248,6 +258,7 @@ export class TuiApp {
       if (subject !== agent || message.source.kind !== 'user' || agent.status !== 'running') return
       const kind = agent.inbox.nextStep.some(item => item.id === message.id) ? 'steering' : 'queued'
       this.transcript.showPending(message.id, kind, extractText(message.content))
+      if (this.busy) this.showWorking()
       this.tui?.requestRender()
     })
     this.ctx.on('agent/inbox/claimed', ({ agent: subject, message }) => {
@@ -338,7 +349,9 @@ export class TuiApp {
       }
       return
     }
-    this.footer.setBusy(true)
+    this.setBusy(true)
+    if (agent.status !== 'running') this.transcript.paintUser(line)
+    this.showWorking()
     this.tui?.requestRender()
     const message = createUserMessage({
       content: [{ type: 'text', text: line }],
@@ -368,6 +381,7 @@ export class TuiApp {
     this.stopped = true
     this.abort.abort()
     this.hideOverlay()
+    this.hideWorking()
     this.terminal?.setProgress(false)
     this.terminal?.setTitle(subagentWindowTitle(0))
     this.tui?.stop()
@@ -389,8 +403,14 @@ export class TuiApp {
    * @param replay - historical events skip chunks and keep assembled messages.
    */
   applyEvent(event: SessionEvent, replay: boolean): void {
-    if (event.type === 'turn/end') this.footer.setBusy(false)
+    if (event.type === 'turn/end') this.setBusy(false)
     this.transcript.applyEvent(event, replay)
+    if (!replay && this.busy) this.syncWorking(event)
+    if (!replay && isStreamChunk(event)) {
+      if (this.transcriptMount === undefined) this.tui?.requestRender()
+      else this.tui?.requestComponentRender(this.transcriptMount)
+      return
+    }
     this.tui?.requestRender()
   }
 
@@ -479,6 +499,77 @@ export class TuiApp {
     this.overlay = showDiffOverlay(tui, overlay)
   }
 
+  /**
+   * Toggle the running-turn chrome: footer hint, Thinking loader, and progress.
+   * @param busy - true while the Agent is running a turn.
+   */
+  private setBusy(busy: boolean): void {
+    this.busy = busy
+    this.footer.setBusy(busy)
+    if (!busy) this.hideWorking()
+    this.syncProgress()
+  }
+
+  /** OSC progress is on while this turn or a subagent run is live. */
+  private syncProgress(): void {
+    this.terminal?.setProgress(this.busy || this.subagentRunning > 0)
+  }
+
+  /**
+   * Keep a braille Thinking loader at the transcript tail while the model is
+   * silent. Tokens and pending tool cards replace it; tool results bring it back.
+   * @param event - the live session event that just folded into the transcript.
+   */
+  private syncWorking(event: SessionEvent): void {
+    if (event.type === 'assistant/chunk') {
+      const chunk = event.data.chunk
+      if (
+        (chunk.type === 'reasoning-delta' || chunk.type === 'text-delta')
+        && chunk.text !== ''
+      ) this.hideWorking()
+      return
+    }
+    if (event.type === 'tool/call') {
+      this.hideWorking()
+      return
+    }
+    if (
+      event.type === 'tool/result'
+      || event.type === 'user/message'
+      || event.type === 'step/start'
+    ) this.showWorking()
+  }
+
+  /** Mount or refresh the Thinking loader as the last transcript child. */
+  private showWorking(): void {
+    const tui = this.tui
+    if (tui === undefined || this.stopped) return
+    if (this.working === undefined) {
+      this.working = new Loader(
+        tui,
+        text => fg(TUI_COLOR.accent, text),
+        text => fg(TUI_COLOR.dim, text),
+        'Thinking',
+        TUI_SYMBOL_THEME.spinnerFrames,
+      )
+      this.transcript.container.addChild(this.working)
+      return
+    }
+    this.working.setMessage('Thinking')
+    this.transcript.container.removeChild(this.working)
+    this.transcript.container.addChild(this.working)
+  }
+
+  /** Stop the Thinking loader. Idempotent. */
+  private hideWorking(): void {
+    const loader = this.working
+    if (loader === undefined) return
+    this.working = undefined
+    loader.stop()
+    this.transcript.container.removeChild(loader)
+    loader.dispose()
+  }
+
   private hideOverlay(): void {
     this.overlay?.hide()
     this.overlay = undefined
@@ -498,6 +589,13 @@ export class TuiApp {
     await this.ctx.get('agentDefaultModel')?.saveSelection(parsed)
     this.notice(`model ${parsed.provider} / ${parsed.model}`)
   }
+}
+
+/** Live assistant deltas repaint only the transcript subtree. */
+function isStreamChunk(event: SessionEvent): boolean {
+  if (event.type !== 'assistant/chunk') return false
+  const chunk = event.data.chunk
+  return chunk.type === 'text-delta' || chunk.type === 'reasoning-delta'
 }
 
 function modelValue(provider: string, model: string): string {

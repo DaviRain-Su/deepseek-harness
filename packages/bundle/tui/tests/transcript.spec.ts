@@ -60,6 +60,7 @@ describe('chat blocks', () => {
     for (const line of user.render(40)) expect(visibleWidth(line)).toBeLessThanOrEqual(40)
     const assistant = new AssistantMessageBlock('Hi')
     assistant.append(' there')
+    assistant.settle()
     assistant.invalidate()
     expect(assistant.render(40).some(line => line.includes('Hi there'))).toBe(true)
     for (const line of new AssistantMessageBlock('你好世界').render(4)) {
@@ -332,5 +333,24 @@ describe('TranscriptView', () => {
     const after = view.container.render(80).join('\n')
     expect(after).not.toContain('queued')
     expect(after).toContain('after this')
+  })
+
+  it('paints an optimistic user bubble and skips the matching durable event', () => {
+    const view = new TranscriptView(() => undefined)
+    view.paintUser('')
+    expect(view.container.render(80).join('\n')).not.toContain('hello')
+    view.paintUser('hello')
+    const painted = view.container.render(80).join('\n')
+    expect(painted).toContain('hello')
+    view.applyEvent(event('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hello' }],
+      source: { kind: 'user' },
+    })), false)
+    expect(view.container.render(80).join('\n')).toBe(painted)
+    view.applyEvent(event('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'again' }],
+      source: { kind: 'user' },
+    })), false)
+    expect(view.container.render(80).join('\n')).toContain('again')
   })
 })

@@ -27,7 +27,8 @@ describe('TUI theme', () => {
   it('paints editor, Markdown, and select-list chrome with truecolor ANSI', () => {
     expect(TUI_EDITOR_THEME.selectList).toBe(TUI_SELECT_LIST_THEME)
     expect(QUESTION_LIST_THEME).toBe(TUI_SELECT_LIST_THEME)
-    expect(TUI_EDITOR_THEME.symbols).toBe(TUI_SYMBOL_THEME)
+    expect(TUI_SYMBOL_THEME.spinnerFrames[0]).toBe('⠋')
+    expect(TUI_SYMBOL_THEME.spinnerFrames).toHaveLength(10)
     expect(TUI_EDITOR_THEME.hintStyle?.('h')).toBe(fg(TUI_COLOR.dim, 'h'))
     expect(TUI_EDITOR_THEME.borderColor('x')).toBe(fg(TUI_COLOR.borderMuted, 'x'))
     expect(TUI_SELECT_LIST_THEME.selectedPrefix('*')).toBe(fg(TUI_COLOR.accent, '*'))

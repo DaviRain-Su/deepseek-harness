@@ -12,7 +12,7 @@ Agent 轮次进行时 TUI 编辑器仍可输入，但 Enter 一律调用 `agent.
 
 `TuiApp.submit` 在 `agent.status === 'running'` 时把非 slash 文本交给 `agent.steer()`，空闲时交给 `agent.followup()`。slash 命令不变。`steer()` 是尽力而为：next-step 窗口已关闭时，同一条消息被改列为会唤醒的 next-turn follow-up，与引擎以及 Web composer 对新输入的约定一致。
 
-`TranscriptView` 为 Agent 运行期间到达的、来源为用户的 inbox 插入绘制暗色斜体 pending 行：id 在 `inbox.nextStep` 时为 `appending · {text}`，否则为 `queued · {text}`。空闲插入仍等到持久 `user/message` 气泡。pending 行在 `agent/inbox/claimed`、`agent/inbox/discarded` 以及匹配的持久 `user/message` 上消失；pi-tui `Container` 没有 `removeChild`，因此 dismiss 让后续 render 为空。`TuiApp` 非 scoped 监听这些 inbox 事件，并过滤 `agent === this.agent`。忙碌页脚为 `enter append · ctrl+c cancel`。Ctrl+C 仍不带 `keepInbox` 取消，未领取的 pending 行随 inbox 一起消失。
+`TranscriptView` 为 Agent 运行期间到达的、来源为用户的 inbox 插入绘制暗色斜体 pending 行：id 在 `inbox.nextStep` 时为 `appending · {text}`，否则为 `queued · {text}`。空闲 Enter 不走 pending 行；submit 立即画出用户气泡（[工作指示](2026-08-14-tui-working-indicator.md)）。pending 行在 `agent/inbox/claimed`、`agent/inbox/discarded` 以及匹配的持久 `user/message` 上消失；`PendingInputBlock.dismiss` 让后续 render 为空。`TuiApp` 非 scoped 监听这些 inbox 事件，并过滤 `agent === this.agent`。忙碌页脚为 `enter append · ctrl+c cancel`。Ctrl+C 仍不带 `keepInbox` 取消，未领取的 pending 行随 inbox 一起消失。
 
 ## 备选方案
 
@@ -22,7 +22,7 @@ Agent 轮次进行时 TUI 编辑器仍可输入，但 Enter 一律调用 `agent.
 
 **移植 Web QueueDock 的编辑/删除和严格的行内 steer。** 否决。TUI 新键入的输入没有需要保全的已排队条目；`agent.steer()` 的 follow-up 回退正是 Web 笔记已经分配给 TUI 调用方的约定。
 
-**空闲 follow-up 也显示 pending 行。** 否决：每次普通发送都会在用户气泡前闪一下 `queued ·`。空闲投递仍走持久 `user/message`。
+**空闲 follow-up 也显示 pending 行。** 否决：每次普通发送都会在用户气泡前闪一下 `queued ·`。空闲投递不走 pending 行。
 
 ## 影响
 
@@ -35,4 +35,5 @@ Agent 轮次进行时 TUI 编辑器仍可输入，但 Enter 一律调用 `agent.
 ## 相关
 
 - [把已排队的 Web 消息插入当前轮次](2026-07-30-web-queue-steer-action.md) — Web Queue 与 composer `steer()`；本笔记是 TUI 对尽力而为 `agent.steer()` 的消费方。
+- [TUI Thinking loader 与流式绘制范围](2026-08-14-tui-working-indicator.md) — 空闲 Enter 立即画出用户气泡；本笔记只管忙碌 pending 行。
 - [已交付的交互式 TUI profile](2026-08-13-shipped-tui-profile.md) — 这条输入路径所在的组合包。

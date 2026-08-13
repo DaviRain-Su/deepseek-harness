@@ -62,6 +62,7 @@ export class TranscriptView {
   private thinking: ThinkingBlock | undefined
   private stream: AssistantMessageBlock | undefined
   private streamed = false
+  private lastPaintedUser: string | undefined
   private readonly pending = new Map<string, PendingTool>()
   private readonly pendingInputs = new Map<string, PendingInputBlock>()
   private readonly cards: ToolCard[] = []
@@ -77,6 +78,20 @@ export class TranscriptView {
    */
   notice(text: string): void {
     this.container.addChild(new Text(fg(TUI_COLOR.dim, text)))
+  }
+
+  /**
+   * Paint a user bubble immediately on editor submit. A later `user/message`
+   * with the same text is skipped so the durable event does not duplicate it.
+   * @param text - the visible user message body.
+   */
+  paintUser(text: string): void {
+    if (text === '') return
+    this.lastPaintedUser = text
+    this.stream = undefined
+    this.thinking = undefined
+    this.streamed = false
+    this.container.addChild(new UserMessageBlock(text))
   }
 
   /**
@@ -157,6 +172,7 @@ export class TranscriptView {
       return
     }
     if (!replay && event.type === 'assistant/message' && this.streamed) {
+      this.stream?.settle()
       this.streamed = false
       this.stream = undefined
       this.thinking = undefined
@@ -170,6 +186,10 @@ export class TranscriptView {
       this.stream = undefined
       this.thinking = undefined
       this.streamed = false
+      if (text === this.lastPaintedUser) {
+        this.lastPaintedUser = undefined
+        return
+      }
       this.container.addChild(new UserMessageBlock(text))
       return
     }

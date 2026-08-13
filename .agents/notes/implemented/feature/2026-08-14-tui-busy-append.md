@@ -12,7 +12,7 @@ The TUI editor stays usable while an Agent turn is running, but Enter always cal
 
 `TuiApp.submit` sends non-slash text through `agent.steer()` when `agent.status === 'running'`, and through `agent.followup()` when idle. Slash commands are unchanged. `steer()` is best-effort: a closed next-step window reclassifies the same message as a waking next-turn follow-up, matching the engine and the Web composer's newly typed input.
 
-`TranscriptView` paints a dim italic pending row for a user-source inbox insert that arrives while the Agent is running: `appending · {text}` when the id is in `inbox.nextStep`, otherwise `queued · {text}`. Idle inserts stay off the transcript until the durable `user/message` bubble. The pending row dismisses on `agent/inbox/claimed`, `agent/inbox/discarded`, and the matching durable `user/message`; pi-tui `Container` has no `removeChild`, so dismiss makes later renders empty. `TuiApp` listens unscoped on those inbox events and filters `agent === this.agent`. The busy footer reads `enter append · ctrl+c cancel`. Ctrl+C still cancels without `keepInbox`, so unclaimed pending rows disappear with the inbox.
+`TranscriptView` paints a dim italic pending row for a user-source inbox insert that arrives while the Agent is running: `appending · {text}` when the id is in `inbox.nextStep`, otherwise `queued · {text}`. Idle Enter does not use a pending row; submit paints the user bubble immediately ([working indicator](2026-08-14-tui-working-indicator.md)). The pending row dismisses on `agent/inbox/claimed`, `agent/inbox/discarded`, and the matching durable `user/message`; `PendingInputBlock.dismiss` makes later renders empty. `TuiApp` listens unscoped on those inbox events and filters `agent === this.agent`. The busy footer reads `enter append · ctrl+c cancel`. Ctrl+C still cancels without `keepInbox`, so unclaimed pending rows disappear with the inbox.
 
 ## Alternatives considered
 
@@ -22,7 +22,7 @@ The TUI editor stays usable while an Agent turn is running, but Enter always cal
 
 **Port Web QueueDock edit/remove and a strict row-steer action.** Rejected. Newly typed TUI input has no queued occurrence to preserve; `agent.steer()`'s follow-up fallback is the contract the Web note already assigned to TUI callers.
 
-**Show pending rows for idle follow-ups too.** Rejected because that would flash `queued ·` before the user bubble on every ordinary send. Idle delivery stays the durable `user/message` path.
+**Show pending rows for idle follow-ups too.** Rejected because that would flash `queued ·` before the user bubble on every ordinary send. Idle delivery does not use a pending row.
 
 ## Consequences
 
@@ -35,4 +35,5 @@ Busy Enter joins the current turn at the next step boundary rather than after `t
 ## Related
 
 - [Steer a queued Web message into the active turn](2026-07-30-web-queue-steer-action.md) — Web Queue vs composer `steer()`; this note is the TUI consumer of best-effort `agent.steer()`.
+- [TUI Thinking loader and stream-paint scope](2026-08-14-tui-working-indicator.md) — idle Enter paints the user bubble immediately; this note owns busy pending rows.
 - [Shipped interactive TUI profile](2026-08-13-shipped-tui-profile.md) — the bundle this input path ships on.

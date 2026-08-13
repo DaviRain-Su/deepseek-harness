@@ -182,6 +182,9 @@ describe('tui runtime', () => {
     expect(test.fake.isStarted).toBe(true)
     await app.submit('   ')
     await app.submit('hello')
+    const answered = app['transcript'].container.render(80).join('\n')
+    expect(answered).toContain('hello')
+    expect(answered).not.toContain('⠋')
     await app.submit('/unknown-cmd')
     await app.submit('/Nope')
     await app.submit('/help')
@@ -315,7 +318,12 @@ describe('tui runtime', () => {
     await app.submit('first')
     expect(agent.status).toBe('running')
     expect(agent.inbox.nextTurn).toHaveLength(1)
-    expect(app['transcript'].container.render(80).join('\n')).not.toContain('queued')
+    const waiting = app['transcript'].container.render(80).join('\n')
+    expect(waiting).toContain('first')
+    expect(waiting).toContain('Thinking')
+    expect(waiting).toContain('⠋')
+    expect(test.fake.progress).toBe(true)
+    expect(waiting).not.toContain('queued')
     await app.submit('keep going')
     expect(agent.inbox.nextStep).toHaveLength(1)
     expect(agent.inbox.nextStep[0]?.content).toEqual([{ type: 'text', text: 'keep going' }])
@@ -333,8 +341,33 @@ describe('tui runtime', () => {
     expect(queued).toContain('queued later')
     test.fake.type('\x03')
     expect(app['transcript'].container.render(80).join('\n')).not.toContain('queued later')
+    expect(app['transcript'].container.render(80).join('\n')).not.toContain('⠋')
+    expect(test.fake.progress).toBe(false)
     release?.()
     await agent.whenIdle()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('hides the Thinking loader on the first streamed token', async () => {
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const test = await bench({
+      afterPrompt: () => held,
+    })
+    const { app, code } = await test.run()
+    await app.submit('ask')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('⠋')
+    app.applyEvent({
+      type: 'assistant/chunk', seq: 1, time: 0,
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'Hi' } },
+    } as never, false)
+    const live = app['transcript'].container.render(80).join('\n')
+    expect(live).toContain('Hi')
+    expect(live).not.toContain('⠋')
+    expect(live).not.toContain('Thinking')
+    release?.()
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
