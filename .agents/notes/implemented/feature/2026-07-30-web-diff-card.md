@@ -6,7 +6,7 @@ English | [中文](2026-07-30-web-diff-card.zh.md)
 
 ## Problem
 
-The `write` and `edit` tools declare `card: 'diff'` for both their call and their result ([render-intent union](../architecture/2026-07-02-tool-render-intent-union.md)): the call view carries the intended change derived from the arguments, and the result view carries the applied contextual hunks (`FileDiff[]`, computed by `packages/fs/tool-fs/src/diff.ts` and persisted in the result `meta` so replay reproduces it). That view already reaches the browser — host, connection, and runtime deliver it onto `ConversationSnapshot` as `callView`/`resultView` — and the TUI already renders it as per-file `+`/`-` blocks with a `+A -R · N file(s)` footer.
+The `write` and `edit` tools declare `card: 'diff'` for both their call and their result ([render-intent union](../architecture/2026-07-02-tool-render-intent-union.md)): the call view carries the intended change derived from the arguments, and the result view carries the applied contextual hunks (`FileDiff[]`, computed by `packages/fs/tool-fs/src/diff.ts` and persisted in the result `meta` so replay reproduces it). That view already reaches the browser — host, connection, and runtime deliver it onto `ConversationSnapshot` as `callView`/`resultView` — and the shipped [`dsh-tui`](../../../packages/bundle/tui/README.md) bundle paints it as per-file `+`/`-` blocks with a `+A -R · N file(s)` footer ([TUI diff card](2026-08-14-tui-diff-card.md)).
 
 The Web client ignored it. A write/edit call landed on `GenericToolCard`, whose row is derived from raw tool args, and the details panel flattened the result's content blocks into one `<pre>`. The `diffs` payload — the whole point of the result — was discarded, so a file mutation read as a one-line confirmation with no visible change.
 
@@ -52,6 +52,7 @@ The fixture (`packages/client/connection/src/client/fixture.ts`) carries three d
 
 ## Related
 
+- [TUI diff card](2026-08-14-tui-diff-card.md) — the terminal consumer of the same `FileDiff` intent.
 - [Web terminal card](2026-07-28-web-terminal-card.md) — the same four-layer shape for the `terminal` arm; this note reuses its inline-output decision and its head/tail cap arithmetic.
 - [Tagged render-intent union for tool-call presentation](../architecture/2026-07-02-tool-render-intent-union.md) — the `card`-tagged vocabulary this consumes; the Web client is now a consumer of the `diff` arm too.
 - [Web client architecture](../architecture/2026-07-19-gui-web-client-architecture.md) — the slot and snapshot layering the two render sites sit in.

@@ -5,7 +5,7 @@ import { visibleWidth } from '@oh-my-pi/pi-tui'
 import { CallId, createAssistantMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { AssistantMessageBlock, ThinkingBlock, UserMessageBlock } from '../src/messages.ts'
+import { AssistantMessageBlock, PendingInputBlock, ThinkingBlock, UserMessageBlock } from '../src/messages.ts'
 import { extractText, TranscriptView, wrapLine } from '../src/transcript.ts'
 
 function event<T extends SessionEvent['type']>(
@@ -73,6 +73,17 @@ describe('chat blocks', () => {
     expect(thought).toContain('plan it')
     expect(thought).toContain('\x1b[3m')
     for (const line of new ThinkingBlock('你好世界').render(4)) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(4)
+    }
+    const pending = new PendingInputBlock('steering', 'keep going')
+    pending.invalidate()
+    const pendingText = pending.render(40).join('\n')
+    expect(pendingText).toContain('appending')
+    expect(pendingText).toContain('keep going')
+    pending.dismiss()
+    expect(pending.render(40)).toEqual([])
+    expect(new PendingInputBlock('queued', 'next').render(40).join('\n')).toContain('queued')
+    for (const line of new PendingInputBlock('steering', '你好世界').render(4)) {
       expect(visibleWidth(line)).toBeLessThanOrEqual(4)
     }
   })
@@ -269,5 +280,57 @@ describe('TranscriptView', () => {
     expect(text).toContain('● Done')
     expect(text).toContain('shown')
     expect(text).toContain('kept')
+  })
+
+  it('expands the last tool card and remembers the last diff', () => {
+    const tool = {
+      presentCall: () => ({
+        card: 'diff' as const,
+        title: 'Edit a.ts',
+        diffs: [{ path: 'a.ts', oldText: 'old', newText: 'new' }],
+      }),
+    } as ToolDefinition
+    const empty = new TranscriptView(() => undefined)
+    expect(empty.toggleLastExpand()).toBe(false)
+    expect(empty.lastDiff()).toBeUndefined()
+    const view = new TranscriptView(name => name === 'edit' ? tool : undefined)
+    view.applyEvent(event('tool/call', {
+      turn: 1, step: 1, callId: CallId('d1'), name: 'bash', arguments: '{}',
+    }), false)
+    view.applyEvent(event('tool/call', {
+      turn: 1, step: 1, callId: CallId('d2'), name: 'edit', arguments: '{}',
+    }), false)
+    expect(view.lastDiff()?.title).toContain('Edit a.ts')
+    expect(view.toggleLastExpand()).toBe(true)
+    expect(view.container.render(80).join('\n')).toContain('- old')
+  })
+
+  it('shows a pending inbox row and dismisses it for claim, discard, and durable user/message', () => {
+    const view = new TranscriptView(() => undefined)
+    const steered = createUserMessage({
+      content: [{ type: 'text', text: 'keep going' }],
+      source: { kind: 'user' },
+    })
+    view.showPending(steered.id, 'steering', '')
+    expect(view.container.render(80).join('\n')).not.toContain('appending')
+    view.showPending(steered.id, 'steering', 'keep going')
+    view.showPending(steered.id, 'steering', 'keep going')
+    const live = view.container.render(80).join('\n')
+    expect(live).toContain('appending')
+    expect(live).toContain('keep going')
+    view.dismissPending(steered.id)
+    view.dismissPending(steered.id)
+    expect(view.container.render(80).join('\n')).not.toContain('appending')
+
+    const queued = createUserMessage({
+      content: [{ type: 'text', text: 'after this' }],
+      source: { kind: 'user' },
+    })
+    view.showPending(queued.id, 'queued', 'after this')
+    expect(view.container.render(80).join('\n')).toContain('queued')
+    view.applyEvent(event('user/message', queued), false)
+    const after = view.container.render(80).join('\n')
+    expect(after).not.toContain('queued')
+    expect(after).toContain('after this')
   })
 })

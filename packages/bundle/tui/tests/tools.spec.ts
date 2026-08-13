@@ -1,7 +1,6 @@
 /** Tool-card mapping of presentCall / presentResult views. */
 
 import { describe, expect, it } from 'vitest'
-import { visibleWidth } from '@oh-my-pi/pi-tui'
 import { ToolCard, linesForCall, linesForResult } from '../src/tools.ts'
 
 describe('linesForCall', () => {
@@ -18,7 +17,11 @@ describe('linesForCall', () => {
     })
     expect(linesForCall({
       card: 'diff', title: 'Write a.ts', diffs: [{ path: 'a.ts', oldText: null, newText: 'x' }],
-    })).toEqual({ title: '✎ Write a.ts', body: ['a.ts'] })
+    })).toEqual({
+      title: '✎ Write a.ts',
+      body: ['a.ts', '+ x', '└ +1 -0 · 1 file'],
+      diffs: [{ path: 'a.ts', oldText: null, newText: 'x' }],
+    })
     expect(() => linesForCall({ card: 'nope' } as never)).toThrow(/unreachable/)
   })
 })
@@ -41,7 +44,11 @@ describe('linesForResult', () => {
     }, '', false)).toEqual({ title: '❯ ls -l', body: ['a', 'exit 0', 'SIGTERM'] })
     expect(linesForResult('✎ a', {
       card: 'diff', diffs: [{ path: 'a.ts', oldText: 'o', newText: 'n' }],
-    }, '', false)).toEqual({ title: '✎ a', body: ['a.ts'] })
+    }, '', false)).toEqual({
+      title: '✎ a',
+      body: ['a.ts', '- o', '+ n', '└ +1 -1 · 1 file'],
+      diffs: [{ path: 'a.ts', oldText: 'o', newText: 'n' }],
+    })
     expect(linesForResult('● g', {
       card: 'search', shape: 'matches', files: [{
         path: 'a.ts', matches: [{ lineNumber: 2, line: 'hit' }],
@@ -85,7 +92,8 @@ describe('ToolCard', () => {
     const pending = card.render(20)
     expect(pending.some(line => line.includes('● t'))).toBe(true)
     expect(pending.some(line => line.includes('more'))).toBe(true)
-    for (const line of pending) expect(visibleWidth(line)).toBeLessThanOrEqual(20)
+    expect(card.toggleExpand()).toBe(true)
+    expect(card.render(20).join('\n')).toContain('row-11')
     card.complete('● done', ['ok'])
     expect(card.render(20).join('\n')).toContain('ok')
     card.complete('error ● t', ['fail'], true)
@@ -94,5 +102,25 @@ describe('ToolCard', () => {
     failed.invalidate()
     expect(failed.render(20).join('\n')).toContain('● x')
     expect(() => new ToolCard('● x', [], 'nope' as never).render(20)).toThrow(/unreachable/)
+    const diff = new ToolCard(
+      '✎ Edit a.ts',
+      Array.from({ length: 12 }, (_, i) => i === 11 ? '└ +12 -0 · 1 file' : `+ row-${String(i)}`),
+      'pending',
+      [{ path: 'a.ts', oldText: null, newText: Array.from({ length: 11 }, (_, i) => `row-${String(i)}`).join('\n') }],
+    )
+    const collapsed = diff.render(40).join('\n')
+    expect(collapsed).toContain('more')
+    expect(collapsed).toContain('alt+o open')
+    expect(diff.toggleExpand()).toBe(true)
+    const expanded = diff.render(40).join('\n')
+    expect(expanded).toContain('ctrl+o collapse')
+    expect(expanded).toContain('row-10')
+    expect(diff.diffView()?.title).toBe('✎ Edit a.ts')
+    diff.complete('✎ Edit a.ts', ['a.ts', '+ x', '└ +1 -0 · 1 file'], false, [
+      { path: 'a.ts', oldText: null, newText: 'x' },
+    ])
+    expect(diff.render(40).join('\n')).toContain('a.ts')
+    expect(new ToolCard('● x', ['only']).render(20).join('\n')).toContain('only')
+    expect(new ToolCard('✎ x', [], 'ok', []).diffView()).toBeUndefined()
   })
 })

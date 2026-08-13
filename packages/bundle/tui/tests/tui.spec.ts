@@ -2,11 +2,11 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, AgentStatus, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
@@ -72,21 +72,42 @@ async function bench(script: Script = {}): Promise<{
       id: session.id,
       options: options.agentOptions ?? {},
       session,
-      inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
-      get status() { return status },
-      set status(value: AgentStatus) { status = value },
+      inbox: new Inbox(session, {
+        inserted: (message) => { emitAgentEvent(ownerCtx, agent, 'agent/inbox/inserted', { message }) },
+        discarded: (message) => { emitAgentEvent(ownerCtx, agent, 'agent/inbox/discarded', { message }) },
+        claimed: (message, turn) => { emitAgentEvent(ownerCtx, agent, 'agent/inbox/claimed', { message, turn }) },
+      }),
       ctx: agentCtx,
-      cancel: () => { status = 'idle' },
+      cancel: () => {
+        agent.inbox.clear()
+        status = 'idle'
+      },
       runMaintenance: () => Promise.reject(new Error('not used')),
       send: () => {},
       followup: (message: UserMessage) => {
         agent.inbox.append('next-turn', message)
-        idle = Promise.resolve().then(() => script.afterPrompt?.(session, message))
+        status = 'running'
+        idle = (async () => {
+          try {
+            await script.afterPrompt?.(session, message)
+          } finally {
+            status = 'idle'
+          }
+        })()
       },
-      steer: () => {},
+      steer: (message: UserMessage) => {
+        agent.inbox.append('next-step', message)
+      },
       inject: () => {},
       whenIdle: () => idle,
     } satisfies Partial<Agent>)
+    // Object.assign copies getter values; keep status as a live accessor.
+    Object.defineProperty(agent, 'status', {
+      configurable: true,
+      enumerable: true,
+      get: () => status,
+      set: (value: AgentStatus) => { status = value },
+    })
     await options.setup?.(agentCtx)
     script.before?.(session)
     ctx.agents.register(agent)
@@ -191,6 +212,41 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('renders subagent lifecycle cards, child activity, and the running count', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    expect(test.fake.title).toBe('dsh')
+    expect(test.fake.progress).toBe(false)
+    const childId = SessionId('child-sub')
+    test.ctx.emit('subagent/start', {
+      runId: 'run-1', provider: 'in-process', id: childId, local: true,
+    } as never)
+    expect(app['footer'].render(80)[1]).toContain('1 subagent running')
+    expect(test.fake.title).toBe('dsh · 1 subagent running')
+    expect(test.fake.progress).toBe(true)
+    const child = test.ctx.sessions.create(childId)
+    child.append('subagent/descriptor', {
+      version: 2, mode: 'one-shot', provider: 'in-process', label: '调查任务',
+    })
+    child.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: '{}',
+    })
+    test.ctx.emit('subagent/end', {
+      runId: 'run-1', provider: 'in-process', id: childId, local: true, stopReason: 'completed',
+    } as never)
+    expect(app['footer'].render(80)[1]).not.toContain('subagent')
+    expect(test.fake.title).toBe('dsh')
+    expect(test.fake.progress).toBe(false)
+    expect(test.fake.output).toContain('\a')
+    const text = app['transcript'].container.render(80).join('\n')
+    expect(text).toContain('⏵ 调查任务 — completed')
+    expect(text).toContain('● bash')
+    expect(text).toContain('1 tool call · completed')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('resumes a persisted session and replays assembled messages', async () => {
     const test = await bench({
       before(session) {
@@ -244,6 +300,42 @@ describe('tui runtime', () => {
     test.fake.type('\x03')
     expect(cancelled).toBe(true)
     test.fake.type('\x03')
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('steers typed input into a running turn and paints a pending row', async () => {
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const test = await bench({
+      afterPrompt: () => held,
+    })
+    const { app, code } = await test.run()
+    const agent = app['agent'] as Agent
+    await app.submit('first')
+    expect(agent.status).toBe('running')
+    expect(agent.inbox.nextTurn).toHaveLength(1)
+    expect(app['transcript'].container.render(80).join('\n')).not.toContain('queued')
+    await app.submit('keep going')
+    expect(agent.inbox.nextStep).toHaveLength(1)
+    expect(agent.inbox.nextStep[0]?.content).toEqual([{ type: 'text', text: 'keep going' }])
+    const pending = app['transcript'].container.render(80).join('\n')
+    expect(pending).toContain('appending')
+    expect(pending).toContain('keep going')
+    agent.inbox.claim('next-step', 1)
+    expect(app['transcript'].container.render(80).join('\n')).not.toContain('appending')
+    agent.inbox.append('next-turn', createUserMessage({
+      content: [{ type: 'text', text: 'queued later' }],
+      source: { kind: 'user' },
+    }))
+    const queued = app['transcript'].container.render(80).join('\n')
+    expect(queued).toContain('queued')
+    expect(queued).toContain('queued later')
+    test.fake.type('\x03')
+    expect(app['transcript'].container.render(80).join('\n')).not.toContain('queued later')
+    release?.()
+    await agent.whenIdle()
+    await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
   })
@@ -315,12 +407,12 @@ describe('tui runtime', () => {
       child.provide('userQuestions', {} as never)
     })
     await services
-    let release: () => void
+    let release: (() => void) | undefined
     const settlement = new Promise<void>((resolve) => { release = resolve })
     ctx.provide('loader', { await: () => settlement } as never)
     apply(ctx, { resume: '' })
     await services.dispose()
-    release!()
+    release?.()
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(exited).toBe(false)
     await ctx.fiber.dispose()
@@ -455,5 +547,40 @@ describe('tui runtime', () => {
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
+  })
+
+  it('expands a diff card on ctrl+o and opens it fullscreen on alt+o', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('tools', {
+      get: () => ({
+        presentCall: () => ({
+          card: 'diff',
+          title: 'Edit a.ts',
+          diffs: [{ path: 'a.ts', oldText: 'old', newText: 'new' }],
+        }),
+      }),
+    } as never)
+    app.applyEvent({
+      type: 'tool/call',
+      seq: 1,
+      time: 0,
+      data: { turn: 1, step: 1, callId: 'c1', name: 'edit', arguments: '{}' },
+    } as never, false)
+    test.fake.type('\x0f')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('- old')
+    test.fake.type('\x1bo')
+    test.fake.type('\x1b')
+    app.openDiffOverlay()
+    app.openDiffOverlay()
+    test.fake.type('\x1b')
+    const idle = await bench()
+    const { app: idleApp } = await idle.run()
+    idle.fake.type('\x1bo')
+    await idleApp.quit(0)
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+    await idle.ctx.fiber.dispose()
   })
 })

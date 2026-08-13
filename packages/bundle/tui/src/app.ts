@@ -22,20 +22,23 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { SlashAutocomplete } from './autocomplete.ts'
-import { MeasuredChild, SessionChrome, SessionFooter, SessionHeader } from './chrome.ts'
+import { MeasuredChild, SessionChrome, SessionFooter, SessionHeader, subagentWindowTitle } from './chrome.ts'
+import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createQuestionProvider } from './questions.ts'
+import { SubagentTracker } from './subagents.ts'
 import {
   applyTuiTheme,
   currentTuiThemeId,
   listTuiThemes,
   TUI_EDITOR_THEME,
 } from './theme.ts'
-import { TranscriptView } from './transcript.ts'
+import { TranscriptView, extractText } from './transcript.ts'
 
 /** Process-facing effects of one TUI run. */
 export interface TuiIo {
@@ -169,6 +172,15 @@ export class TuiApp {
         void this.openModelPicker()
         return { consume: true }
       }
+      if (matchesKey(data, 'ctrl+o')) {
+        this.transcript.toggleLastExpand()
+        tui.requestRender()
+        return { consume: true }
+      }
+      if (matchesKey(data, 'alt+o')) {
+        this.openDiffOverlay()
+        return { consume: true }
+      }
       return undefined
     })
 
@@ -207,12 +219,50 @@ export class TuiApp {
       handler: () => ({ kind: 'success' as const, text: '' }),
     })
     userQuestions.registerProvider(createQuestionProvider(tui))
+    const tracker = new SubagentTracker(this.transcript.container, {
+      resolveAgent: id => this.ctx.get('agents')?.get(id),
+      lookupTool: (name, scoped) => this.ctx.get('tools')?.get(name, scoped ?? agent),
+      countChanged: (running) => {
+        this.footer.setSubagents(running)
+        this.terminal?.setTitle(subagentWindowTitle(running))
+        this.terminal?.setProgress(running > 0)
+        this.tui?.requestRender()
+      },
+    })
+    this.ctx.on('subagent/start', (info) => {
+      tracker.start(info)
+      this.tui?.requestRender()
+    })
+    this.ctx.on('subagent/end', (info) => {
+      // BEL is a C0 control; ProcessTerminal.setTitle's OSC terminator BEL is not audible.
+      if (tracker.end(info)) this.terminal?.write('\a')
+    })
     this.ctx.on('session/event', (session: Session, event: SessionEvent) => {
-      if (session !== this.agent?.session) return
-      this.applyEvent(event, false)
+      if (session === this.agent?.session) {
+        this.applyEvent(event, false)
+        return
+      }
+      if (tracker.sessionEvent(session, event)) this.tui?.requestRender()
+    })
+    this.ctx.on('agent/inbox/inserted', ({ agent: subject, message }) => {
+      if (subject !== agent || message.source.kind !== 'user' || agent.status !== 'running') return
+      const kind = agent.inbox.nextStep.some(item => item.id === message.id) ? 'steering' : 'queued'
+      this.transcript.showPending(message.id, kind, extractText(message.content))
+      this.tui?.requestRender()
+    })
+    this.ctx.on('agent/inbox/claimed', ({ agent: subject, message }) => {
+      if (subject !== agent) return
+      this.transcript.dismissPending(message.id)
+      this.tui?.requestRender()
+    })
+    this.ctx.on('agent/inbox/discarded', ({ agent: subject, message }) => {
+      if (subject !== agent) return
+      this.transcript.dismissPending(message.id)
+      this.tui?.requestRender()
     })
 
     tui.start()
+    terminal.setTitle(subagentWindowTitle(0))
     internals.onReady(this)
   }
 
@@ -257,6 +307,8 @@ export class TuiApp {
 
   /**
    * Handle one submitted editor line: slash commands stay in the command plane.
+   * Idle text calls `followup()`; a running Agent receives `steer()` so the
+   * line joins the current turn at the next step.
    * @param raw - the exact editor contents.
    */
   async submit(raw: string): Promise<void> {
@@ -288,10 +340,12 @@ export class TuiApp {
     }
     this.footer.setBusy(true)
     this.tui?.requestRender()
-    agent.followup(createUserMessage({
+    const message = createUserMessage({
       content: [{ type: 'text', text: line }],
       source: { kind: 'user' },
-    }))
+    })
+    if (agent.status === 'running') agent.steer(message)
+    else agent.followup(message)
   }
 
   /**
@@ -314,6 +368,8 @@ export class TuiApp {
     this.stopped = true
     this.abort.abort()
     this.hideOverlay()
+    this.terminal?.setProgress(false)
+    this.terminal?.setTitle(subagentWindowTitle(0))
     this.tui?.stop()
     this.tui = undefined
   }
@@ -400,6 +456,27 @@ export class TuiApp {
       currentTuiThemeId(),
     )
     this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Open the last `card: 'diff'` tool card as a fullscreen overlay. Mouse
+   * tracking is on for that overlay's lifetime so the wheel scrolls the hunks.
+   */
+  openDiffOverlay(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const view = this.transcript.lastDiff()
+    if (view === undefined) {
+      this.notice('no file diff to open')
+      return
+    }
+    const overlay = new DiffOverlay(
+      view.title,
+      view.diffs,
+      () => tui.terminal.rows,
+      { onClose: () => { this.hideOverlay() } },
+    )
+    this.overlay = showDiffOverlay(tui, overlay)
   }
 
   private hideOverlay(): void {

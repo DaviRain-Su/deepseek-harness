@@ -39,6 +39,9 @@
       "path": "../../interaction/user-questions"
     },
     {
+      "path": "../../subagent/subagent"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {

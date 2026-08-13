@@ -30,6 +30,8 @@ export interface TuiPalette {
   mdQuoteBorder: string
   mdHr: string
   mdListBullet: string
+  diffAdd: string
+  diffDel: string
 }
 
 const DARK: TuiPalette = {
@@ -55,6 +57,8 @@ const DARK: TuiPalette = {
   mdQuoteBorder: '#808080',
   mdHr: '#808080',
   mdListBullet: '#8abeb7',
+  diffAdd: '#b5bd68',
+  diffDel: '#cc6666',
 }
 
 const DARK_TOKYO_NIGHT: TuiPalette = {
@@ -80,6 +84,8 @@ const DARK_TOKYO_NIGHT: TuiPalette = {
   mdQuoteBorder: '#363b54',
   mdHr: '#363b54',
   mdListBullet: '#7dcfff',
+  diffAdd: '#9ece6a',
+  diffDel: '#db4b4b',
 }
 
 const DARK_CATPPUCCIN: TuiPalette = {
@@ -105,6 +111,8 @@ const DARK_CATPPUCCIN: TuiPalette = {
   mdQuoteBorder: '#313244',
   mdHr: '#313244',
   mdListBullet: '#fab387',
+  diffAdd: '#a6e3a1',
+  diffDel: '#f38ba8',
 }
 
 const LIGHT: TuiPalette = {
@@ -130,6 +138,8 @@ const LIGHT: TuiPalette = {
   mdQuoteBorder: '#d6d6d6',
   mdHr: '#d6d6d6',
   mdListBullet: '#d19a66',
+  diffAdd: '#718c00',
+  diffDel: '#c82829',
 }
 
 const SHARP: SymbolTheme['boxSharp'] = {

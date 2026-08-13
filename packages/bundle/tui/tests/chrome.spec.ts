@@ -12,6 +12,8 @@ import {
   SessionChrome,
   SessionFooter,
   SessionHeader,
+  runningSubagentsLabel,
+  subagentWindowTitle,
 } from '../src/chrome.ts'
 
 function stub(lines: string[], hooks?: {
@@ -38,6 +40,8 @@ describe('SessionHeader', () => {
     const lines = header.render(80)
     expect(lines.join('\n')).toContain('dsh')
     expect(lines.join('\n')).toContain('ctrl+c interrupt')
+    expect(lines.join('\n')).toContain('ctrl+o expand')
+    expect(lines.join('\n')).toContain('alt+o diff')
     expect(lines.join('\n')).toContain('/model')
     expect(lines.join('\n')).toContain('/theme')
     expect(lines.join('\n')).toContain('session session-1')
@@ -80,12 +84,27 @@ describe('SessionFooter', () => {
     for (const line of footer.render(8)) expect(visibleWidth(line)).toBeLessThanOrEqual(8)
     footer.setBusy(true)
     footer.setModel('abcdefghijklmnopqrstuvwxyz')
+    expect(footer.render(80)[1]).toContain('enter append')
     expect(footer.render(80)[1]).toContain('ctrl+c cancel')
     expect(visibleWidth(footer.render(28)[1] ?? '')).toBeLessThanOrEqual(28)
     for (const line of footer.render(4)) expect(visibleWidth(line)).toBeLessThanOrEqual(4)
     expect(visibleWidth(footer.render(16)[1] ?? '')).toBeLessThanOrEqual(16)
     expect(new SessionFooter('/tmp/work', 'm', undefined).render(40)[0]).toContain('/tmp/work')
     expect(new SessionFooter('/tmp/work', 'm', '/tmp/work').render(40)[0]).toContain('~')
+  })
+
+  it('counts running subagents on the stats row and shares the window-title label', () => {
+    const footer = new SessionFooter('/tmp', 'm')
+    footer.setSubagents(1)
+    expect(footer.render(80)[1]).toContain('1 subagent running')
+    footer.setSubagents(2)
+    expect(footer.render(80)[1]).toContain('2 subagents running')
+    footer.setSubagents(0)
+    expect(footer.render(80)[1]).not.toContain('subagent')
+    expect(runningSubagentsLabel(0)).toBeUndefined()
+    expect(subagentWindowTitle(0)).toBe('dsh')
+    expect(subagentWindowTitle(1)).toBe('dsh · 1 subagent running')
+    expect(subagentWindowTitle(2)).toBe('dsh · 2 subagents running')
   })
 })
 

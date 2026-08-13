@@ -5,7 +5,8 @@
 
 import { Box, truncateToWidth, type Component } from '@oh-my-pi/pi-tui'
 import { assertNever } from '@deepseek-ai/dsh-llm'
-import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { FileDiff, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
+import { diffBody, paintDiffLine } from './diff.ts'
 import { bg, bold, fg, TUI_COLOR } from './theme.ts'
 import { wrapLine } from './wrap.ts'
 
@@ -18,9 +19,13 @@ const TOOL_PREVIEW_ROWS = 8
 /**
  * Title and body lines for a pending call card.
  * @param view - the tool's `presentCall` intent, or a generic fallback.
- * @returns a marker title and optional detail rows.
+ * @returns a marker title, optional detail rows, and hunks when `card` is `diff`.
  */
-export function linesForCall(view: ToolCallView): { title: string; body: string[] } {
+export function linesForCall(view: ToolCallView): {
+  title: string
+  body: string[]
+  diffs?: FileDiff[]
+} {
   switch (view.card) {
     case 'generic':
       return { title: `● ${view.title}`, body: rawInputLines(view.rawInput) }
@@ -30,7 +35,7 @@ export function linesForCall(view: ToolCallView): { title: string; body: string[
         body: view.description === undefined ? [] : [view.description],
       }
     case 'diff':
-      return { title: `✎ ${view.title}`, body: view.diffs.map(diff => diff.path) }
+      return { title: `✎ ${view.title}`, body: diffBody(view.diffs), diffs: view.diffs }
     default:
       return assertNever(view)
   }
@@ -42,14 +47,14 @@ export function linesForCall(view: ToolCallView): { title: string; body: string[
  * @param view - the tool's `presentResult` intent, or undefined to keep raw text.
  * @param raw - model-facing result text used when the view has no structured body.
  * @param isError - whether the call failed.
- * @returns the completed title and preview body.
+ * @returns the completed title, preview body, and hunks when `card` is `diff`.
  */
 export function linesForResult(
   pendingTitle: string,
   view: ToolResultView | undefined,
   raw: string,
   isError: boolean,
-): { title: string; body: string[] } {
+): { title: string; body: string[]; diffs?: FileDiff[] } {
   const prefix = isError ? 'error ' : ''
   if (view === undefined) {
     return { title: `${prefix}${pendingTitle}`, body: raw === '' ? [] : [raw] }
@@ -65,7 +70,8 @@ export function linesForResult(
     case 'diff':
       return {
         title: resultTitle(prefix, pendingTitle, '✎', view.title),
-        body: view.diffs.map(diff => diff.path),
+        body: diffBody(view.diffs),
+        diffs: view.diffs,
       }
     case 'search':
       return { title: resultTitle(prefix, pendingTitle, '●', view.title), body: searchBody(view) }
@@ -84,21 +90,27 @@ export function linesForResult(
 /**
  * One tool-card component: a Pi `Box` with pending/success/error background,
  * a marker title, and a bounded body, updated in place when the matching
- * `tool/result` arrives.
+ * `tool/result` arrives. Ctrl+O toggles the cap; a `diff` card also opens a
+ * fullscreen overlay on Alt+O.
  */
 export class ToolCard implements Component {
   private readonly box: Box
+  private expanded = false
+  private diffs: readonly FileDiff[] | undefined
 
   /**
    * @param title - the pending or completed marker line.
-   * @param body - unwrapped detail rows; {@link render} wraps and caps them.
+   * @param body - unwrapped detail rows; {@link render} wraps or truncates them.
    * @param status - selects the card background and title color.
+   * @param diffs - hunks for a `card: 'diff'` call, used by the overlay.
    */
   constructor(
     private title: string,
     private body: string[],
     private status: ToolCardStatus = 'pending',
+    diffs?: readonly FileDiff[],
   ) {
+    this.diffs = diffs
     this.box = new Box(1, 1, line => bg(toolBg(this.status), line))
     this.box.addChild({
       render: (width: number) => this.innerLines(width),
@@ -123,12 +135,33 @@ export class ToolCard implements Component {
    * @param title - the completed marker line.
    * @param body - unwrapped detail rows.
    * @param isError - true paints the error background and title color.
+   * @param diffs - replacement hunks when the result is a diff card.
    */
-  complete(title: string, body: string[], isError = false): void {
+  complete(title: string, body: string[], isError = false, diffs?: readonly FileDiff[]): void {
     this.title = title
     this.body = body
     this.status = isError ? 'error' : 'ok'
+    if (diffs !== undefined) this.diffs = diffs
     this.box.invalidate()
+  }
+
+  /**
+   * Toggle the collapsed preview on this card.
+   * @returns true after flipping, so the session can request a render.
+   */
+  toggleExpand(): boolean {
+    this.expanded = !this.expanded
+    this.box.invalidate()
+    return true
+  }
+
+  /**
+   * Hunks for the fullscreen overlay, when this card is a file mutation.
+   * @returns the current diffs, or undefined for a non-diff card.
+   */
+  diffView(): { title: string; diffs: readonly FileDiff[] } | undefined {
+    if (this.diffs === undefined || this.diffs.length === 0) return undefined
+    return { title: this.title, diffs: this.diffs }
   }
 
   /**
@@ -148,7 +181,10 @@ export class ToolCard implements Component {
     const title = this.status === 'error'
       ? fg(TUI_COLOR.error, this.title)
       : fg(TUI_COLOR.text, bold(this.title))
-    return [...wrapLine(title, width), ...preview(this.body, width).map(line => fg(TUI_COLOR.muted, line))]
+    const painted = this.diffs === undefined
+      ? preview(this.body, width, this.expanded).map(line => fg(TUI_COLOR.muted, line))
+      : previewDiff(this.body, width, this.expanded)
+    return [...wrapLine(title, width), ...painted]
   }
 }
 
@@ -218,9 +254,39 @@ function webBody(view: Extract<ToolResultView, { card: 'web' }>): string[] {
   }
 }
 
-function preview(lines: string[], width: number): string[] {
+function preview(lines: string[], width: number, expanded: boolean): string[] {
   const wrapped = lines.flatMap(line => wrapLine(line, width))
-  if (wrapped.length <= TOOL_PREVIEW_ROWS) return wrapped
+  if (expanded || wrapped.length <= TOOL_PREVIEW_ROWS) return wrapped
   const hidden = wrapped.length - TOOL_PREVIEW_ROWS
-  return [...wrapped.slice(0, TOOL_PREVIEW_ROWS), truncateToWidth(`… ${String(hidden)} more`, width)]
+  const head = Math.ceil(TOOL_PREVIEW_ROWS / 2)
+  const tail = TOOL_PREVIEW_ROWS - head
+  return [
+    ...wrapped.slice(0, head),
+    truncateToWidth(`… ${String(hidden)} more · ctrl+o expand`, width),
+    ...wrapped.slice(wrapped.length - tail),
+  ]
+}
+
+function previewDiff(lines: string[], width: number, expanded: boolean): string[] {
+  const footerIndex = lines.findIndex(line => line.startsWith('└ '))
+  const footer = footerIndex >= 0 ? lines.slice(footerIndex) : []
+  const body = footerIndex >= 0 ? lines.slice(0, footerIndex) : lines
+  const clip = (line: string): string => width < 1 ? line : truncateToWidth(line, width)
+  const paint = (line: string): string => paintDiffLine(clip(line), line)
+  const open = ' · alt+o open'
+  if (expanded || body.length <= TOOL_PREVIEW_ROWS) {
+    const extra = expanded && body.length > TOOL_PREVIEW_ROWS
+      ? [fg(TUI_COLOR.dim, clip(`ctrl+o collapse${open}`))]
+      : body.length > 0 ? [fg(TUI_COLOR.dim, clip('alt+o open'))] : []
+    return [...body.map(paint), ...extra, ...footer.map(paint)]
+  }
+  const hidden = body.length - TOOL_PREVIEW_ROWS
+  const head = Math.ceil(TOOL_PREVIEW_ROWS / 2)
+  const tail = TOOL_PREVIEW_ROWS - head
+  return [
+    ...body.slice(0, head).map(paint),
+    fg(TUI_COLOR.dim, clip(`… ${String(hidden)} more · ctrl+o expand${open}`)),
+    ...body.slice(body.length - tail).map(paint),
+    ...footer.map(paint),
+  ]
 }

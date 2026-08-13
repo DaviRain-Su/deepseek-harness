@@ -14,6 +14,10 @@ export class FakeTerminal implements Terminal {
   kittyProtocolActive = false
   kittyEnableSequence: string | null = null
   appearance: TerminalAppearance | undefined
+  /** Last {@link Terminal.setTitle} value. */
+  title = ''
+  /** Last {@link Terminal.setProgress} value. */
+  progress = false
 
   constructor(
     readonly columns = 80,
@@ -77,8 +81,21 @@ export class FakeTerminal implements Terminal {
   clearLine(): void {}
   clearFromCursor(): void {}
   clearScreen(): void {}
-  setTitle(_title: string): void {}
-  setProgress(_active: boolean): void {}
+  /**
+   * Record the OSC window title.
+   * @param title - the string the TUI would send.
+   */
+  setTitle(title: string): void {
+    this.title = title
+  }
+
+  /**
+   * Record the progress-indicator request.
+   * @param active - whether a live run should show progress.
+   */
+  setProgress(active: boolean): void {
+    this.progress = active
+  }
   onAppearanceChange(
     _callback: (appearance: TerminalAppearance) => void,
   ): void {}

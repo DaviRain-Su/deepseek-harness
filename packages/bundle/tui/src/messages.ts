@@ -116,3 +116,43 @@ export class ThinkingBlock implements Component {
   /** No cached rows. */
   invalidate(): void {}
 }
+
+/** Inbox placement shown until the durable `user/message` replaces the row. */
+export type PendingInputKind = 'queued' | 'steering'
+
+/**
+ * Transient user input that is in the Agent inbox but not yet a session
+ * event: next-step steering or a next-turn queue item. `dismiss()` makes
+ * later renders empty; pi-tui Container cannot remove a child.
+ */
+export class PendingInputBlock implements Component {
+  private dismissed = false
+
+  /**
+   * @param kind - next-step steering vs next-turn queue.
+   * @param text - the visible body.
+   */
+  constructor(
+    private readonly kind: PendingInputKind,
+    private readonly text: string,
+  ) {}
+
+  /** Hide this row. Idempotent. */
+  dismiss(): void {
+    this.dismissed = true
+  }
+
+  /**
+   * @param width - columns available to this component.
+   * @returns the dim italic label and body, or no rows once dismissed.
+   */
+  render(width: number): string[] {
+    if (this.dismissed) return []
+    const label = this.kind === 'steering' ? 'appending' : 'queued'
+    const paint = (line: string) => fg(TUI_COLOR.dim, italic(line))
+    return [...wrapLine(`${label} · ${this.text}`, width).map(paint), '']
+  }
+
+  /** No cached rows. */
+  invalidate(): void {}
+}

@@ -69,5 +69,6 @@ describe('TUI theme', () => {
     expect(TUI_COLOR.accent).toBe('#d19a66')
     expect(applyTuiTheme('dark-catppuccin')).toBe(true)
     expect(TUI_COLOR.accent).toBe('#fab387')
+    expect(TUI_COLOR.diffAdd).toBe('#a6e3a1')
   })
 })

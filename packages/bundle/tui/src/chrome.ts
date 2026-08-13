@@ -26,7 +26,7 @@ export class SessionHeader implements Component {
    */
   render(width: number): string[] {
     const logo = bold(fg(TUI_COLOR.accent, 'dsh'))
-    const hints = ['ctrl+c interrupt', '/model', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
+    const hints = ['ctrl+c interrupt', 'ctrl+o expand', 'alt+o diff', '/model', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
     const onboarding = fg(TUI_COLOR.dim, 'Ask dsh to inspect or edit this workspace.')
     const session = fg(TUI_COLOR.dim, `session ${this.sessionId}`)
     return [
@@ -70,7 +70,7 @@ export class SessionFooter implements Component {
   }
 
   /**
-   * Toggle the running-turn hint on the stats row.
+   * Toggle the running-turn hint on the stats row (`enter append · ctrl+c cancel`).
    * @param busy - true while the Agent is running a turn.
    */
   setBusy(busy: boolean): void {
@@ -92,9 +92,10 @@ export class SessionFooter implements Component {
    */
   render(width: number): string[] {
     const pwd = truncateToWidth(fg(TUI_COLOR.dim, formatCwdForFooter(this.cwd, this.home)), width, Ellipsis.Ascii)
+    const running = runningSubagentsLabel(this.subagents)
     const stats = [
-      ...this.busy ? ['ctrl+c cancel'] : [],
-      ...this.subagents > 0 ? [`${String(this.subagents)} subagent${this.subagents === 1 ? '' : 's'} running`] : [],
+      ...this.busy ? ['enter append', 'ctrl+c cancel'] : [],
+      ...running === undefined ? [] : [running],
     ].join(' · ')
     const left = stats === '' ? '' : fg(TUI_COLOR.dim, stats)
     const right = fg(TUI_COLOR.dim, this.model)
@@ -251,6 +252,27 @@ function alignPair(left: string, right: string, width: number): string {
   if (leftWidth + 2 >= width) return truncateToWidth(left, width, Ellipsis.Ascii)
   const shownRight = truncateToWidth(right, width - leftWidth - 2, '')
   return `${left}${' '.repeat(width - leftWidth - visibleWidth(shownRight))}${shownRight}`
+}
+
+/**
+ * Footer / window-title fragment for live subagent runs. Zero hides it.
+ * @param running - runs started but not yet settled.
+ * @returns `<n> subagent(s) running`, or undefined when idle.
+ */
+export function runningSubagentsLabel(running: number): string | undefined {
+  if (running <= 0) return undefined
+  return `${String(running)} subagent${running === 1 ? '' : 's'} running`
+}
+
+/**
+ * OSC window title for the TUI process. Idle sessions stay `dsh`; live runs
+ * prefix the same count the footer shows.
+ * @param running - runs started but not yet settled.
+ * @returns the title string passed to the terminal `setTitle` call.
+ */
+export function subagentWindowTitle(running: number): string {
+  const label = runningSubagentsLabel(running)
+  return label === undefined ? 'dsh' : `dsh · ${label}`
 }
 
 /**

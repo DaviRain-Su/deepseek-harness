@@ -6,8 +6,14 @@
 import { Container, Text } from '@oh-my-pi/pi-tui'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { ToolCallView, ToolDefinition, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
-import { AssistantMessageBlock, ThinkingBlock, UserMessageBlock } from './messages.ts'
+import type { FileDiff, ToolCallView, ToolDefinition, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import {
+  AssistantMessageBlock,
+  PendingInputBlock,
+  ThinkingBlock,
+  UserMessageBlock,
+  type PendingInputKind,
+} from './messages.ts'
 import { fg, TUI_COLOR } from './theme.ts'
 import { ToolCard, linesForCall, linesForResult } from './tools.ts'
 
@@ -57,6 +63,8 @@ export class TranscriptView {
   private stream: AssistantMessageBlock | undefined
   private streamed = false
   private readonly pending = new Map<string, PendingTool>()
+  private readonly pendingInputs = new Map<string, PendingInputBlock>()
+  private readonly cards: ToolCard[] = []
 
   /**
    * @param lookup - live `ctx.tools.get` for the current Agent scope.
@@ -69,6 +77,54 @@ export class TranscriptView {
    */
   notice(text: string): void {
     this.container.addChild(new Text(fg(TUI_COLOR.dim, text)))
+  }
+
+  /**
+   * Toggle the collapsed preview on the most recent tool card.
+   * @returns whether a card flipped.
+   */
+  toggleLastExpand(): boolean {
+    const card = this.cards.at(-1)
+    if (card === undefined) return false
+    return card.toggleExpand()
+  }
+
+  /**
+   * Hunks of the most recent diff card, for the fullscreen overlay.
+   * @returns the last file-mutation card's title and diffs, or undefined.
+   */
+  lastDiff(): { title: string; diffs: readonly FileDiff[] } | undefined {
+    for (let index = this.cards.length - 1; index >= 0; index -= 1) {
+      const view = this.cards[index]?.diffView()
+      if (view !== undefined) return view
+    }
+    return undefined
+  }
+
+  /**
+   * Show a transient row for a user-source inbox item until it is claimed,
+   * discarded, or logged as `user/message`. Empty text is ignored. A second
+   * call with the same id is a no-op.
+   * @param id - the pending message id.
+   * @param kind - next-step steering vs next-turn queue.
+   * @param text - visible body.
+   */
+  showPending(id: string, kind: PendingInputKind, text: string): void {
+    if (text === '' || this.pendingInputs.has(id)) return
+    const block = new PendingInputBlock(kind, text)
+    this.pendingInputs.set(id, block)
+    this.container.addChild(block)
+  }
+
+  /**
+   * Hide the transient inbox row for `id`. Idempotent when the row is gone.
+   * @param id - the pending message id.
+   */
+  dismissPending(id: string): void {
+    const block = this.pendingInputs.get(id)
+    if (block === undefined) return
+    this.pendingInputs.delete(id)
+    block.dismiss()
   }
 
   /**
@@ -107,6 +163,7 @@ export class TranscriptView {
       return
     }
     if (event.type === 'user/message') {
+      this.dismissPending(event.data.id)
       if (event.data.source.kind !== 'user') return
       const text = extractText(event.data.content)
       if (text === '') return
@@ -153,8 +210,9 @@ export class TranscriptView {
     const args = parseArgs(raw)
     const view = presentCall(this.lookup(name), name, args)
     const lines = linesForCall(view)
-    const card = new ToolCard(lines.title, lines.body)
+    const card = new ToolCard(lines.title, lines.body, 'pending', lines.diffs)
     this.pending.set(callId, { card, name, args, title: lines.title })
+    this.cards.push(card)
     this.container.addChild(card)
   }
 
@@ -179,10 +237,12 @@ export class TranscriptView {
     )
     const lines = linesForResult(pending?.title ?? `● ${name}`, view, raw, isError)
     if (pending === undefined) {
-      this.container.addChild(new ToolCard(lines.title, lines.body, isError ? 'error' : 'ok'))
+      const card = new ToolCard(lines.title, lines.body, isError ? 'error' : 'ok', lines.diffs)
+      this.cards.push(card)
+      this.container.addChild(card)
       return
     }
-    pending.card.complete(lines.title, lines.body, isError)
+    pending.card.complete(lines.title, lines.body, isError, lines.diffs)
   }
 }
 
