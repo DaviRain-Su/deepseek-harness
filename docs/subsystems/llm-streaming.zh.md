@@ -905,7 +905,7 @@ logout(provider: string): Promise<void>
 
 Types: [CredentialInfo](credentials.md)
 
-Source: [`packages/llm/llm-oauth/src/index.ts:160`](../../packages/llm/llm-oauth/src/index.ts)
+Source: [`packages/llm/llm-oauth/src/index.ts:172`](../../packages/llm/llm-oauth/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -950,7 +950,7 @@ A provider's OAuth credential was durably committed or removed, whether by a `mo
 'llm/oauth-updated'(provider: string): void
 ```
 
-Source: [`packages/llm/llm-oauth/src/index.ts:56`](../../packages/llm/llm-oauth/src/index.ts)
+Source: [`packages/llm/llm-oauth/src/index.ts:68`](../../packages/llm/llm-oauth/src/index.ts)
 
 <a id="llmstream--waterfall"></a>
 
