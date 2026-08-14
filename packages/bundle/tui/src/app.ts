@@ -42,7 +42,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
 import { presetPickerItem, sessionBlank } from './presets.ts'
@@ -854,8 +854,9 @@ export class TuiApp {
    * Appearance reuses the theme picker; Models lists configurable providers
    * and writes API keys and base URLs; Permission switches the preset through
    * the mounted `ctx.get('permissionPresets')` service; Sections lists
-   * `ctx.settings.describe()` read-only; Settings file notices
-   * `ctx.settings.documentPath` when the provider stores one local file.
+   * `ctx.settings.describe({ redactSecrets: true })` namespaces and field
+   * names; Settings file notices `ctx.settings.documentPath` when the
+   * provider stores one local file.
    * Escape or an external hide closes the hub without opening a sub-panel.
    */
   openSettingsPicker(): void {
@@ -935,8 +936,8 @@ export class TuiApp {
 
   /**
    * Sections sub-panel: a read-only view of `ctx.settings.describe()`.
-   * Selecting a row notices the namespace and whether a user layer exists;
-   * it does not open a schema-driven editor.
+   * Selecting a row with fields opens a name-only field picker; otherwise
+   * it notices the namespace. Values are never shown.
    */
   private openSettingsSectionsPicker(): void {
     const tui = this.tui
@@ -947,11 +948,12 @@ export class TuiApp {
       return
     }
     const entries: SettingsSectionEntry[] = []
-    for (const descriptor of settings.describe()) {
+    for (const descriptor of settings.describe({ redactSecrets: true })) {
       entries.push({
         ns: String(descriptor.ns),
         applies: descriptor.applies,
         overridden: descriptor.user !== undefined,
+        fields: settingsSectionFields(descriptor.value, descriptor.user, descriptor.secrets),
       })
     }
     if (entries.length === 0) {
@@ -967,9 +969,41 @@ export class TuiApp {
           this.hideOverlay()
           const selected = entries.find(entry => entry.ns === item.value)
           if (selected === undefined) return
+          if (selected.fields !== undefined && selected.fields.length > 0) {
+            this.openSettingsSectionFieldsPicker(selected)
+            return
+          }
           this.notice(selected.overridden
             ? `settings ${selected.ns} · ${selected.applies} · overridden`
             : `settings ${selected.ns} · ${selected.applies}`)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Name-only field picker for one settings namespace. Confirming a row
+   * notices `settings <ns>.<field>` and whether the user layer names it.
+   * @param section - the namespace row that was confirmed.
+   */
+  private openSettingsSectionFieldsPicker(section: SettingsSectionEntry): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const fields = section.fields ?? []
+    const picker = new OverlayPicker(
+      section.ns,
+      settingsSectionFieldRows(fields),
+      'Field names · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          const selected = fields.find(field => field.name === item.value)
+          if (selected === undefined) return
+          this.notice(selected.overridden
+            ? `settings ${section.ns}.${selected.name} · overridden`
+            : `settings ${section.ns}.${selected.name}`)
         },
         onCancel: () => { this.hideOverlay() },
       },

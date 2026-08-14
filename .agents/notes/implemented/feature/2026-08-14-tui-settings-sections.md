@@ -10,7 +10,7 @@ Web's settings UI lists every registered namespace from `ctx.settings.describe()
 
 ## Decision
 
-When `ctx.settings.describe` is a function, `/settings` appends a Sections row after Inventory. Confirming it opens a read-only picker over `describe()`: label is the namespace, description is `applies` plus `overridden` when `user` is present. Confirming a row notices `settings <ns> · <applies>` and `overridden` when a user layer exists. An empty describe notices `no settings sections`. The TUI does not render schema fields or call `mutate` from this panel.
+When `ctx.settings.describe` is a function, `/settings` appends a Sections row after Inventory. Confirming it opens a read-only picker over `describe({ redactSecrets: true })`: label is the namespace, description is `applies` plus `overridden` when `user` is present. Confirming a row with field names opens a name-only picker ([TUI settings section fields](2026-08-14-tui-settings-section-fields.md)); otherwise it notices `settings <ns> · <applies>` and `overridden` when a user layer exists. An empty describe notices `no settings sections`. This panel does not call `mutate`.
 
 ## Alternatives considered
 
@@ -22,7 +22,7 @@ When `ctx.settings.describe` is a function, `/settings` appends a Sections row a
 
 ## Consequences
 
-The hub names registered settings namespaces. Models and Settings file stay the write and path rows. Plugin field edits stay off this path.
+The hub names registered settings namespaces. Models and Settings file stay the write and path rows. Field values and schema-driven edits stay off this path.
 
 ## Testing
 
@@ -32,3 +32,4 @@ The hub names registered settings namespaces. Models and Settings file stay the 
 
 - [TUI settings Models panel](2026-08-14-tui-settings-models-panel.md) — the hub this row joins.
 - [TUI settings file path](2026-08-14-tui-settings-file-path.md) — the document-path row on the same hub.
+- [TUI settings section fields](2026-08-14-tui-settings-section-fields.md) — the name-only field picker on a confirmed row.

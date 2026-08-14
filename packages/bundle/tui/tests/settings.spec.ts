@@ -18,6 +18,8 @@ import {
   promptPermissionPreset,
   providerCredentialRows,
   settingsHubRows,
+  settingsSectionFieldRows,
+  settingsSectionFields,
   settingsSectionRows,
   type PermissionPresetSource,
   type PluginInventorySource,
@@ -89,6 +91,37 @@ describe('settingsSectionRows', () => {
 
   it('returns an empty list when nothing is registered', () => {
     expect(settingsSectionRows({ sections: () => [] })).toEqual([])
+  })
+})
+
+describe('settingsSectionFields', () => {
+  it('sorts redacted value keys and one-segment secret slots', () => {
+    expect(settingsSectionFields(
+      { theme: 'dark', reasoning: 'low' },
+      { theme: 'dark' },
+      [{ path: ['apiKey'] }, { path: ['retry', 'token'] }],
+    )).toEqual([
+      { name: 'apiKey', overridden: false },
+      { name: 'reasoning', overridden: false },
+      { name: 'theme', overridden: true },
+    ])
+  })
+
+  it('returns an empty list when the value is not a plain object and no top-level secrets exist', () => {
+    expect(settingsSectionFields(undefined, undefined)).toEqual([])
+    expect(settingsSectionFields(['x'], undefined, [{ path: ['nested', 'key'] }])).toEqual([])
+  })
+})
+
+describe('settingsSectionFieldRows', () => {
+  it('marks a user-layer key as overridden', () => {
+    expect(settingsSectionFieldRows([
+      { name: 'theme', overridden: true },
+      { name: 'apiKey', overridden: false },
+    ])).toEqual([
+      { value: 'theme', label: 'theme', description: 'overridden' },
+      { value: 'apiKey', label: 'apiKey' },
+    ])
   })
 })
 

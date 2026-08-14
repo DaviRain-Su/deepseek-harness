@@ -3,7 +3,8 @@
  * whose rows are sub-panels; `app.ts` dispatches a confirmed row. Permission
  * reads the mounted `PermissionPresetService` and writes through `set`.
  * Models lists configurable providers and offers Set / Clear API key, Set /
- * Clear base URL, plus Login; Inventory and Sections are read-only rosters.
+ * Clear base URL, plus Login; Inventory is a read-only roster; Sections lists
+ * namespaces and, when a section has field names, a name-only field picker.
  * @module @deepseek-ai/dsh-tui/settings
  */
 
@@ -62,6 +63,14 @@ export function settingsHubRows(options: SettingsHubOptions = {}): SelectItem[] 
   ]
 }
 
+/** One top-level field on a registered settings namespace. */
+export interface SettingsSectionField {
+  /** Field name on the resolved section object. */
+  readonly name: string
+  /** True when the user layer names this key. */
+  readonly overridden: boolean
+}
+
 /** One registered settings namespace, as a configuration surface reads it. */
 export interface SettingsSectionEntry {
   /** Registered namespace id. */
@@ -70,6 +79,53 @@ export interface SettingsSectionEntry {
   readonly applies: string
   /** True when a well-formed user layer exists for this namespace. */
   readonly overridden: boolean
+  /** Top-level keys of the redacted resolved value, when any. */
+  readonly fields?: readonly SettingsSectionField[]
+}
+
+/**
+ * Top-level keys of a redacted resolved section, plus one-segment secret
+ * slots. Names only — never values.
+ * @param value - `describe({ redactSecrets: true }).value`.
+ * @param user - the redacted user layer, when one exists.
+ * @param secrets - `describe({ redactSecrets: true }).secrets`.
+ * @returns sorted field rows.
+ */
+export function settingsSectionFields(
+  value: unknown,
+  user: unknown,
+  secrets: readonly { path: readonly string[] }[] = [],
+): SettingsSectionField[] {
+  const names = new Set<string>()
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    for (const name of Object.keys(value)) names.add(name)
+  }
+  for (const secret of secrets) {
+    const name = secret.path[0]
+    if (secret.path.length === 1 && name !== undefined) names.add(name)
+  }
+  if (names.size === 0) return []
+  const userObj = typeof user === 'object' && user !== null && !Array.isArray(user)
+    ? user as Record<string, unknown>
+    : {}
+  return [...names].sort().map(name => ({
+    name,
+    overridden: Object.prototype.hasOwnProperty.call(userObj, name),
+  }))
+}
+
+/**
+ * Field picker rows for one namespace. Description is `overridden` when the
+ * user layer names that key.
+ * @param fields - {@link settingsSectionFields} output.
+ * @returns one row per field.
+ */
+export function settingsSectionFieldRows(fields: readonly SettingsSectionField[]): SelectItem[] {
+  return fields.map(field => ({
+    value: field.name,
+    label: field.name,
+    ...field.overridden ? { description: 'overridden' } : {},
+  }))
 }
 
 /** The settings-describe surface; `ctx.settings` satisfies this structurally. */

@@ -657,6 +657,38 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('notices a settings section field name from the hub', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      describe: () => [
+        {
+          ns: 'tui-theme',
+          applies: 'live',
+          value: { theme: 'dark' },
+          user: { theme: 'dark' },
+          secrets: [{ path: ['apiKey'] }],
+        },
+      ],
+    } as never)
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('settings tui-theme.theme · overridden')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('notices when settings describe reports no sections', async () => {
     const test = await bench()
     const { app, code } = await test.run()

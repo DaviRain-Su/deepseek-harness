@@ -10,7 +10,7 @@ Web 的设置界面从 `ctx.settings.describe()` 列出每个已注册命名空�
 
 ## 决策
 
-当 `ctx.settings.describe` 是函数时，`/settings` 在 Inventory 之后追加一行 Sections。确认后打开 `describe()` 的只读 picker：标签是命名空间，描述是 `applies`，存在 `user` 时再加 `overridden`。确认一行会提示 `settings <ns> · <applies>`，有用户层时加上 `overridden`。空的 describe 提示 `no settings sections`。该面板不渲染 schema 字段，也不调用 `mutate`。
+当 `ctx.settings.describe` 是函数时，`/settings` 在 Inventory 之后追加一行 Sections。确认后打开 `describe({ redactSecrets: true })` 的只读 picker：标签是命名空间，描述是 `applies`，存在 `user` 时再加 `overridden`。确认一行若有字段名则打开只列名称的 picker（[TUI settings 分节字段](2026-08-14-tui-settings-section-fields.md)）；否则提示 `settings <ns> · <applies>`，有用户层时加上 `overridden`。空的 describe 提示 `no settings sections`。该面板不调用 `mutate`。
 
 ## 考虑过的替代方案
 
@@ -22,7 +22,7 @@ Web 的设置界面从 `ctx.settings.describe()` 列出每个已注册命名空�
 
 ## 后果
 
-hub 会说出已注册的 settings 命名空间。Models 和 Settings file 仍是写入与路径行。插件字段编辑仍不走这条路径。
+hub 会说出已注册的 settings 命名空间。Models 和 Settings file 仍是写入与路径行。字段值和按 schema 驱动的编辑仍不走这条路径。
 
 ## 测试
 
@@ -32,3 +32,4 @@ hub 会说出已注册的 settings 命名空间。Models 和 Settings file 仍�
 
 - [TUI settings Models 面板](2026-08-14-tui-settings-models-panel.md) — 本行加入的 hub。
 - [TUI settings 文件路径](2026-08-14-tui-settings-file-path.md) — 同一 hub 上的文档路径行。
+- [TUI settings 分节字段](2026-08-14-tui-settings-section-fields.md) — 确认一行后的只列名称字段 picker。
