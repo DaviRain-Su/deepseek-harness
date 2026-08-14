@@ -124,6 +124,18 @@ export class SubagentTracker {
    * @param info - the run identity and terminal outcome.
    * @returns whether this end actually settled a live run (so the TUI may bell).
    */
+  /**
+   * Forget every run after the transcript container is emptied. Cards are
+   * already gone; this only clears identity maps and the running count.
+   */
+  reset(): void {
+    this.runs.clear()
+    this.byChild.clear()
+    if (this.running === 0) return
+    this.running = 0
+    this.hooks.countChanged(0)
+  }
+
   end(info: SubagentRunEndInfo): boolean {
     const state = this.runs.get(info.runId)
     if (state === undefined || state.done) return false

@@ -25,7 +25,10 @@ import {
 
 export { internals, TuiApp } from './app.ts'
 export { SlashAutocomplete } from './autocomplete.ts'
+export type { SlashSkillItem } from './autocomplete.ts'
 export { createApprovalAnswerer, promptApproval } from './approval.ts'
+export { createTuiAuthInteraction, formatAuthStatus } from './login.ts'
+export { formatSessionCreatedAt, isSwitchableSession, sessionPickerItem } from './sessions.ts'
 export { QuestionForm, createQuestionProvider } from './questions.ts'
 export { wrapLine, extractText } from './transcript.ts'
 export { PALETTE_KEYS, themeInternals } from './theme.ts'

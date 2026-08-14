@@ -24,5 +24,5 @@ dsh auth
 
 ## 已知限制与暂缓事项
 
-- **没有进程内 TUI `/login`** — 流程在启动器的最小树里运行并退出；正在运行的 TUI 必须重启才能看到新存储的路由。
+- **仅启动器** — 本插件不是 tui profile 行。TUI `/login` 用 overlay `AuthInteraction` 调用 `ctx.llmOAuth`，不挂载本包。
 - **Web 没有对应界面** — 模型设置页仍无法启动 OAuth 流程。

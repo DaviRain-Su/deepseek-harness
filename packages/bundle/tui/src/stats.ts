@@ -58,19 +58,28 @@ export interface ContextOccupancy {
  * Approximate context occupancy, mirroring the Web `ContextMeter`: the
  * numerator is `projectedTokens` — the provider sample carried forward over
  * the surface's movement since — falling back to the bare `pressureTokens`
- * sample, clamped to 100%. Numerator and capacity are independent last-wins
- * projection fields, so this is a reference figure, not one exact request.
+ * sample, clamped to 100%. Capacity resolves `pressure.contextWindow` first,
+ * then `preheatedWindow` so the row shows before the first request arrives,
+ * since the projection only sets `contextWindow` from a `request/context`
+ * record. Both numerator and capacity are independent last-wins projection
+ * fields, so this is a reference figure, not one exact request.
  * @param pressure - the session's context-pressure projection, when registered.
+ * @param preheatedWindow - the route capacity resolved from the live model
+ *   selection before the first request, when `pressure.contextWindow` is absent.
  * @returns occupancy with its numerator and denominator, or null until both
  *   are known.
  */
-export function contextOccupancy(pressure: ContextPressureProjection | undefined): ContextOccupancy | null {
+export function contextOccupancy(
+  pressure: ContextPressureProjection | undefined,
+  preheatedWindow?: number,
+): ContextOccupancy | null {
   const usedTokens = pressure?.projectedTokens ?? pressure?.pressureTokens
-  if (usedTokens === undefined || pressure?.contextWindow === undefined) return null
+  const contextWindow = pressure?.contextWindow ?? preheatedWindow
+  if (usedTokens === undefined || contextWindow === undefined) return null
   return {
-    percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
+    percent: Math.min(100, Math.round(usedTokens / contextWindow * 100)),
     usedTokens,
-    contextWindow: pressure.contextWindow,
+    contextWindow,
   }
 }
 
@@ -96,12 +105,15 @@ export function formatTokensPerSecond(tps: number): string {
  * @param usage - the session's token-usage projection, when registered.
  * @param pressure - the session's context-pressure projection, when registered.
  * @param stats - the session's whole-log stats projection, when registered.
+ * @param preheatedWindow - the route capacity resolved from the live model
+ *   selection, used for the `ctx` group before the first request arrives.
  * @returns the stats line, or '' when nothing to show.
  */
 export function statsLine(
   usage: TokenUsageProjection | undefined,
   pressure: ContextPressureProjection | undefined,
   stats: SessionStatsProjection | undefined,
+  preheatedWindow?: number,
 ): string {
   const groups: string[] = []
   if (usage !== undefined && (billedInputTokens(usage) > 0 || usage.outputTokens > 0)) {
@@ -116,7 +128,7 @@ export function statsLine(
     }
     if (stats.turns > 0) groups.push(`${stats.turns} turn${stats.turns === 1 ? '' : 's'}`)
   }
-  const occupancy = contextOccupancy(pressure)
+  const occupancy = contextOccupancy(pressure, preheatedWindow)
   if (occupancy !== null) {
     groups.push(`ctx ${occupancy.percent}% ${formatTokens(occupancy.usedTokens)}/${formatTokens(occupancy.contextWindow)}`)
   }

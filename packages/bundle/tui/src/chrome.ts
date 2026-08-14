@@ -18,7 +18,15 @@ export class SessionHeader implements Component {
   /**
    * @param sessionId - the persisted Agent session id shown on the last row.
    */
-  constructor(private readonly sessionId: string) {}
+  constructor(private sessionId: string) {}
+
+  /**
+   * Replace the dim session id after an in-process `/sessions` switch.
+   * @param sessionId - the newly live Agent session id.
+   */
+  setSessionId(sessionId: string): void {
+    this.sessionId = sessionId
+  }
 
   /**
    * @param width - columns available to this component.
@@ -26,7 +34,7 @@ export class SessionHeader implements Component {
    */
   render(width: number): string[] {
     const logo = bold(fg(TUI_COLOR.accent, 'dsh'))
-    const hints = ['ctrl+c interrupt', 'ctrl+o expand', 'alt+o diff', '/model', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
+    const hints = ['ctrl+c interrupt', 'ctrl+o expand', 'alt+o diff', '/model', '/login', '/sessions', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
     const onboarding = fg(TUI_COLOR.dim, 'Ask dsh to inspect or edit this workspace.')
     const session = fg(TUI_COLOR.dim, `session ${this.sessionId}`)
     return [

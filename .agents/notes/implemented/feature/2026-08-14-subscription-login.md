@@ -30,11 +30,13 @@ Loginable catalog ids are whatever `loginableProviders()` returns from the insta
 
 **Offer OAuth-only catalog routes with no stored credential.** Rejected: every request would still fail `Provider is not configured` before it goes out. The directory filter stays; a stored token or a settings-named route is what registers.
 
-**Web login UI and TUI `/login`.** Deferred. `dsh login` is the product path; a live TUI must restart to see a newly stored route.
+**Web login UI.** Deferred. The Models page still cannot start the flow.
+
+**TUI `/login` as a second OAuth implementation.** Rejected: the TUI overlay is an `AuthInteraction` over the same `ctx.llmOAuth.login` ([TUI login overlay](2026-08-14-tui-login-overlay.md)).
 
 ## Consequences
 
-`dsh login openai-codex` then a new `dsh` (or TUI restart) makes that catalog route selectable in `/model` and authenticates requests through the store, with refresh under the lock. The Models page still cannot start the flow, and Codex stays off **Add provider** until a token is stored or a settings document already names the route. A same-UID process can read `$DSH_HOME/.auth.yaml`; owner-only mode stops other OS users, not the model or tools running as the same user.
+`dsh login openai-codex` or TUI `/login` writes the store; a live TUI `/model` lists the catalog route after `llm/adapters-updated`, and requests authenticate through the store with refresh under the lock. Web still needs a new boot. The Models page still cannot start the flow, and Codex stays off **Add provider** until a token is stored or a settings document already names the route. A same-UID process can read `$DSH_HOME/.auth.yaml`; owner-only mode stops other OS users, not the model or tools running as the same user.
 
 ## Testing
 
@@ -44,3 +46,5 @@ Loginable catalog ids are whatever `loginableProviders()` returns from the insta
 
 - [The configurable-provider directory withholds OAuth-only providers](../bug-fix/2026-08-13-oauth-only-providers-withheld.md) — the directory filter this work leaves in place.
 - [File-backed credentials](../../../../packages/credentials/credentials-local/README.md) — the document, lock, and watcher pattern the OAuth store follows.
+- [TUI login overlay](2026-08-14-tui-login-overlay.md) — in-process `/login` / `/logout` / `/auth` over this store.
+- [TUI live model catalog](2026-08-14-tui-live-model-catalog.md) — `/model` refresh after a store write.

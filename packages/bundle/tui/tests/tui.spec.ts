@@ -215,6 +215,7 @@ describe('tui runtime', () => {
     await app.submit('/bad')
     app['enqueueSubmit']('from-editor')
     expect(app['listSlashCommands']().some((command: { name: string }) => command.name === 'help')).toBe(true)
+    expect(await app['listSlashSkills']()).toEqual([])
     test.ctx.sessions.create(SessionId('other')).append('turn/start', { turn: 1 })
     await app.quit(0)
     expect(await code).toBe(0)
@@ -474,6 +475,7 @@ describe('tui runtime', () => {
     } as never, false)
     app['agent'] = undefined
     expect(app['listSlashCommands']()).toEqual([])
+    expect(await app['listSlashSkills']()).toEqual([])
     await app.quit(0)
     await app.submit('late')
     await app.quit(0)
@@ -741,6 +743,186 @@ describe('tui runtime', () => {
     test.fake.type('\r')
     await expect(pending).resolves.toBe('allowed-once')
     expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices a missing subscription store on /login and /auth', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/login')
+    await app.submit('/auth')
+    const text = app['transcript'].container.render(80).join('\n')
+    expect(text).toContain('subscription login is not mounted')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('opens /login, runs the selected provider, and notices success', async () => {
+    const test = await bench()
+    const logged: string[] = []
+    test.ctx.provide('llmOAuth', {
+      loginableProviders: () => [
+        { id: 'openai-codex', name: 'OpenAI Codex', loginLabel: 'ChatGPT Plus' },
+        { id: 'anthropic', name: 'Anthropic' },
+      ],
+      list: async () => [],
+      login: async (provider: string) => {
+        logged.push(provider)
+        return { type: 'oauth', access: 'x' }
+      },
+      logout: async () => {},
+    } as never)
+    const { app, code } = await test.run()
+    await app.submit('/login')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(logged).toEqual(['openai-codex'])
+    expect(app['transcript'].container.render(80).join('\n')).toContain('logged in to openai-codex')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('logs in a named provider, shows /auth status, and logs out', async () => {
+    const test = await bench()
+    let stored: { providerId: string }[] = []
+    test.ctx.provide('llmOAuth', {
+      loginableProviders: () => [
+        { id: 'openai-codex', name: 'OpenAI Codex' },
+        { id: 'anthropic', name: 'Anthropic' },
+      ],
+      list: async () => stored,
+      login: async (provider: string) => {
+        stored = [{ providerId: provider }]
+        return { type: 'oauth', access: 'x' }
+      },
+      logout: async (provider: string) => {
+        stored = stored.filter(entry => entry.providerId !== provider)
+      },
+    } as never)
+    const { app, code } = await test.run()
+    await app.submit('/login openai-codex')
+    await Promise.resolve()
+    await Promise.resolve()
+    await app.submit('/auth')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('openai-codex logged in')
+    await app.submit('/logout')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('logged out of openai-codex')
+    await app.submit('/logout')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('no subscription logins')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices a missing session-query service on /sessions', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/sessions')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('session listing is not mounted')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('opens /sessions and keeps the current row without switching', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const current = app['agent']!.id
+    test.ctx.provide('sessionQuery', {
+      filterSessions: async () => [{
+        header: { version: 0, id: current, createdAt: 1, cwd: process.cwd() },
+        live: true,
+        persisted: true,
+      }],
+      readTitleSnapshots: async () => [{
+        sessionId: current,
+        status: 'fulfilled',
+        value: { session: { version: 0, id: current, createdAt: 1 }, title: { title: 'Current' } },
+      }],
+    } as never)
+    await app.submit('/sessions')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['agent']!.id).toBe(current)
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('switches to a named session and refuses while a turn is running', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const current = app['agent']!
+    current.status = 'running'
+    await app.submit('/sessions session-other')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('finish the current turn before switching sessions')
+    expect(app['agent']!.id).toBe(current.id)
+    current.status = 'idle'
+    await app.submit('/sessions session-other')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['agent']!.id).toBe('session-other')
+    expect(app['sessionHeader']!.render(80).join('\n')).toContain('session session-other')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('session session-other')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('lists user-invocable skills for slash autocomplete and swallows catalog failures', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    expect(await app['listSlashSkills']()).toEqual([])
+    let listed: unknown = [
+      {
+        name: 'review',
+        description: 'Review the change',
+        invocation: { modelInvocable: true, userInvocable: true },
+      },
+      {
+        name: 'hidden',
+        description: 'Model only',
+        invocation: { modelInvocable: true, userInvocable: false },
+      },
+    ]
+    const session = app['agent']!.session
+    const header = { ...session.header, cwd: '/workspace/cache' }
+    Object.defineProperty(session, 'header', { configurable: true, value: header })
+    test.ctx.provide('skills', {
+      list: async (options: { cwd?: string; scope?: unknown }) => {
+        expect(options.cwd).toBe(app['agent'] === undefined ? undefined : '/workspace/cache')
+        expect(options.scope).toBe(app['agent'])
+        if (listed instanceof Error) throw listed
+        return listed
+      },
+    } as never)
+    expect(await app['listSlashSkills']()).toEqual([
+      { name: 'review', description: 'Review the change' },
+    ])
+    listed = new Error('catalog down')
+    expect(await app['listSlashSkills']()).toEqual([])
+    app['agent'] = undefined
+    listed = [{
+      name: 'review',
+      description: 'Review the change',
+      invocation: { modelInvocable: true, userInvocable: true },
+    }]
+    expect(await app['listSlashSkills']()).toEqual([
+      { name: 'review', description: 'Review the change' },
+    ])
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()

@@ -20,7 +20,7 @@
 
 ## 订阅登录
 
-带 OAuth 流程的 catalog 提供方，产品路径是 `dsh login`。它把 token 持久化到 `$DSH_HOME/.auth.yaml`。下一次 `dsh` 或 `dsh web` 启动会注册该 catalog 路由，因此 TUI 的 `/model` 选择器和之后的 Web 模型选择器都能用它。模型设置页仍无法启动该流程。
+带 OAuth 流程的 catalog 提供方，`dsh login` 和 TUI `/login` overlay 把 token 持久化到 `$DSH_HOME/.auth.yaml`。正在运行的 TUI 在 `llm/adapters-updated` 上注册该 catalog 路由。Web 仍需重新启动。模型设置页仍无法启动该流程。
 
 ```sh
 dsh login openai-codex
@@ -29,7 +29,7 @@ dsh auth
 dsh logout openai-codex
 ```
 
-`login` 省略提供方时会弹出选择。登录后请重启正在运行的 TUI。可登录的 catalog id 包括 `openai-codex`（ChatGPT Plus/Pro）、`anthropic`、`xai`、`github-copilot`、`kimi-coding`、`openrouter`、`openrouter-images` 和 `radius`。裸 `openai` 只支持 API 密钥。
+`login` 省略提供方时会弹出选择。TUI `/login`、`/logout` 和 `/auth` 驱动同一份存储。可登录的 catalog id 包括 `openai-codex`（ChatGPT Plus/Pro）、`anthropic`、`xai`、`github-copilot`、`kimi-coding`、`openrouter`、`openrouter-images` 和 `radius`。裸 `openai` 只支持 API 密钥。
 
 ## 添加自定义提供方
 

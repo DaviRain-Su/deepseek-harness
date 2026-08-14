@@ -20,22 +20,28 @@ import { parseCommand } from '@deepseek-ai/dsh-commands'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-commands'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { LlmModelInfo, LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
+import type { LlmModelInfo, LlmReasoningEffortInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
+import { isUserInvocable } from '@deepseek-ai/dsh-skill'
+import type { LlmOAuthService } from '@deepseek-ai/dsh-llm-oauth'
+import type { SessionQueryEngine, SessionRecord, SessionTitleObservationResult } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { SlashAutocomplete } from './autocomplete.ts'
+import type { SlashSkillItem } from './autocomplete.ts'
 import { MeasuredChild, SessionChrome, SessionFooter, SessionHeader, subagentWindowTitle } from './chrome.ts'
 import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
+import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, type LoginOverlayHandle } from './login.ts'
 import { createQuestionProvider } from './questions.ts'
+import { isSwitchableSession, sessionPickerItem, type SessionPickerEntry } from './sessions.ts'
 import { SubagentTracker } from './subagents.ts'
 import {
   applyTuiTheme,
@@ -93,14 +99,18 @@ export class TuiApp {
   private tui: TUI | undefined
   private terminal: Terminal | undefined
   private selection: ModelSelectionRef | undefined
-  private overlay: OverlayHandle | ApprovalOverlayHandle | undefined
+  private overlay: OverlayHandle | ApprovalOverlayHandle | LoginOverlayHandle | undefined
   /** True while the `/model` catalog overlay is the focused overlay. */
   private listingModels = false
   /** Provider ids last observed on `ctx.llm`, for addition notices. */
   private knownProviders = new Set<string>()
   private readonly transcript = new TranscriptView(name => this.ctx.get('tools')?.get(name, this.agent))
   private transcriptMount: MeasuredChild | undefined
+  private sessionHeader: SessionHeader | undefined
+  private subagents: SubagentTracker | undefined
   private readonly footer = new SessionFooter(process.cwd(), '')
+  /** Route capacity resolved from the live model selection, shown before the first request. */
+  private preheatedWindow: number | undefined
   private working: Loader | undefined
   private busy = false
   private subagentRunning = 0
@@ -174,7 +184,9 @@ export class TuiApp {
     this.tui = tui
     const agent = this.agent
     this.footer.setModel(modelLabel(selection.current))
-    const header = new MeasuredChild(new SessionHeader(agent.id))
+    void this.preheatContextWindow(selection.current)
+    this.sessionHeader = new SessionHeader(agent.id)
+    const header = new MeasuredChild(this.sessionHeader)
     const transcript = new MeasuredChild(this.transcript.container)
     this.transcriptMount = transcript
     tui.addChild(header)
@@ -183,7 +195,7 @@ export class TuiApp {
     this.wireStats()
 
     const editor = new Editor(TUI_EDITOR_THEME)
-    editor.setAutocompleteProvider(new SlashAutocomplete(this.listSlashCommands))
+    editor.setAutocompleteProvider(new SlashAutocomplete(this.listSlashCommands, this.listSlashSkills))
     editor.onSubmit = this.enqueueSubmit
     tui.addChild(new SessionChrome(
       () => terminal.rows,
@@ -246,6 +258,38 @@ export class TuiApp {
       },
     })
     commands.register({
+      name: 'login',
+      description: 'Log in to a subscription provider',
+      input: { hint: 'provider' },
+      handler: ({ rawInput }) => {
+        void this.startLogin(rawInput.trim())
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'logout',
+      description: 'Log out of a subscription provider',
+      input: { hint: 'provider' },
+      handler: ({ rawInput }) => {
+        void this.startLogout(rawInput.trim())
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'auth',
+      description: 'Show subscription login status',
+      handler: () => this.showAuthStatus(),
+    })
+    commands.register({
+      name: 'sessions',
+      description: 'Switch to a persisted session',
+      input: { hint: 'session' },
+      handler: ({ rawInput }) => {
+        void this.startSessions(rawInput.trim())
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
       name: 'exit',
       description: 'Exit the terminal UI',
       handler: () => ({ kind: 'success' as const, text: '' }),
@@ -267,9 +311,9 @@ export class TuiApp {
         onClose: () => { this.overlay = undefined },
       },
     ))
-    const tracker = new SubagentTracker(this.transcript.container, {
+    this.subagents = new SubagentTracker(this.transcript.container, {
       resolveAgent: id => this.ctx.get('agents')?.get(id),
-      lookupTool: (name, scoped) => this.ctx.get('tools')?.get(name, scoped ?? agent),
+      lookupTool: (name, scoped) => this.ctx.get('tools')?.get(name, scoped ?? this.agent),
       countChanged: (running) => {
         this.subagentRunning = running
         this.footer.setSubagents(running)
@@ -279,34 +323,35 @@ export class TuiApp {
       },
     })
     this.ctx.on('subagent/start', (info) => {
-      tracker.start(info)
+      this.subagents?.start(info)
       this.tui?.requestRender()
     })
     this.ctx.on('subagent/end', (info) => {
       // BEL is a C0 control; ProcessTerminal.setTitle's OSC terminator BEL is not audible.
-      if (tracker.end(info)) this.terminal?.write('\a')
+      if (this.subagents?.end(info) === true) this.terminal?.write('\a')
     })
     this.ctx.on('session/event', (session: Session, event: SessionEvent) => {
       if (session === this.agent?.session) {
         this.applyEvent(event, false)
         return
       }
-      if (tracker.sessionEvent(session, event)) this.tui?.requestRender()
+      if (this.subagents?.sessionEvent(session, event) === true) this.tui?.requestRender()
     })
     this.ctx.on('agent/inbox/inserted', ({ agent: subject, message }) => {
-      if (subject !== agent || message.source.kind !== 'user' || agent.status !== 'running') return
-      const kind = agent.inbox.nextStep.some(item => item.id === message.id) ? 'steering' : 'queued'
+      const owned = this.agent
+      if (subject !== owned || message.source.kind !== 'user' || owned.status !== 'running') return
+      const kind = owned.inbox.nextStep.some(item => item.id === message.id) ? 'steering' : 'queued'
       this.transcript.showPending(message.id, kind, extractText(message.content))
       if (this.busy) this.showWorking()
       this.tui?.requestRender()
     })
     this.ctx.on('agent/inbox/claimed', ({ agent: subject, message }) => {
-      if (subject !== agent) return
+      if (subject !== this.agent) return
       this.transcript.dismissPending(message.id)
       this.tui?.requestRender()
     })
     this.ctx.on('agent/inbox/discarded', ({ agent: subject, message }) => {
-      if (subject !== agent) return
+      if (subject !== this.agent) return
       this.transcript.dismissPending(message.id)
       this.tui?.requestRender()
     })
@@ -336,6 +381,31 @@ export class TuiApp {
     const commands = this.ctx.get('commands')
     if (agent === undefined || commands === undefined) return []
     return commands.list(agent)
+  }
+
+  /**
+   * Live user-invocable skills for slash autocomplete. Missing or failing
+   * discovery returns none so command completions still work.
+   * @returns kebab-case names and descriptions, or an empty list.
+   */
+  private readonly listSlashSkills = async (): Promise<readonly SlashSkillItem[]> => {
+    const skills = this.ctx.get('skills')
+    if (skills === undefined) return []
+    const agent = this.agent
+    const cwd = agent?.session.header.cwd
+    try {
+      const listed = await skills.list({
+        ...cwd === undefined ? {} : { cwd },
+        ...agent === undefined ? {} : { scope: agent },
+      })
+      return listed.filter(isUserInvocable).map(skill => ({
+        name: skill.name,
+        description: skill.description,
+      }))
+    } catch {
+      // A failed catalog read is not a typing error; command completions still work.
+      return []
+    }
   }
 
   /**
@@ -451,6 +521,32 @@ export class TuiApp {
   }
 
   /**
+   * Resolve the current selection's context capacity so the footer `ctx`
+   * group shows before the first request arrives. The pressure projection
+   * only sets `contextWindow` from a `request/context` record, so this
+   * preheat fills the gap until the provider reports usage. A resolve that
+   * fails or reports no capacity leaves the prior value.
+   * @param selection - the live provider/model, or undefined before a selection.
+   */
+  private async preheatContextWindow(selection: ModelSelection | undefined): Promise<void> {
+    if (selection === undefined || this.stopped) return
+    const llm = this.ctx.get('llm')
+    if (llm === undefined) return
+    try {
+      const info = await llm.resolveModelInfo(selection.provider, selection.model)
+      const resolved = info.context?.contextWindow
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- this.stopped can flip during the awaited resolveModelInfo
+      if (resolved !== undefined && !this.stopped) {
+        this.preheatedWindow = resolved
+        this.refreshStats()
+        this.tui?.requestRender()
+      }
+    } catch {
+      // Leave the prior preheat; the request path will populate the projection.
+    }
+  }
+
+  /**
    * Read one consistent projection cut and push the formatted stats line to
    * the footer. Synchronous and O(1) over the cached log watermark.
    */
@@ -459,7 +555,7 @@ export class TuiApp {
     const agent = this.agent
     if (projections === undefined || agent === undefined) return
     const values = projections.snapshot(agent.session).values
-    this.footer.setStatsLine(statsLine(values.tokenUsage, values.contextPressure, values.sessionStats))
+    this.footer.setStatsLine(statsLine(values.tokenUsage, values.contextPressure, values.sessionStats, this.preheatedWindow))
   }
 
   /**
@@ -502,11 +598,20 @@ export class TuiApp {
       this.notice('no LLM runtime is mounted')
       return
     }
-    const items: SelectItem[] = []
+    const rows: { provider: string; model: LlmModelInfo; info: LlmResolvedModelInfo | undefined }[] = []
     for (const provider of llm.listProviders()) {
       const models = await llm.listModels(provider.id)
-      for (const model of models) items.push(modelItem(provider.id, model))
+      for (const model of models) {
+        let info: LlmResolvedModelInfo | undefined
+        try { info = await llm.resolveModelInfo(provider.id, model.id) } catch { info = undefined }
+        rows.push({ provider: provider.id, model, info })
+      }
     }
+    const items: SelectItem[] = rows.map(row => ({
+      value: modelValue(row.provider, row.model.id),
+      label: `${row.provider} / ${row.model.id}`,
+      description: modelItemDescription(row.model, row.info),
+    }))
     if (items.length === 0) {
       this.notice('no LLM providers registered')
       return
@@ -548,6 +653,329 @@ export class TuiApp {
       currentTuiThemeId(),
     )
     this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * `/login [provider]`: pick a loginable catalog provider when omitted, then
+   * run `ctx.llmOAuth.login` with the overlay `AuthInteraction`.
+   * @param provider - a catalog provider id, or empty to open the picker.
+   */
+  async startLogin(provider: string): Promise<void> {
+    const oauth = this.requireOAuth()
+    if (oauth === undefined) return
+    if (provider.length > 0) {
+      await this.runLogin(oauth, provider)
+      return
+    }
+    this.openLoginPicker(oauth)
+  }
+
+  /**
+   * `/logout [provider]`: pick a stored credential when omitted, then delete it.
+   * @param provider - a stored provider id, or empty to open the picker.
+   */
+  async startLogout(provider: string): Promise<void> {
+    const oauth = this.requireOAuth()
+    if (oauth === undefined) return
+    if (provider.length > 0) {
+      await this.runLogout(oauth, provider)
+      return
+    }
+    await this.openLogoutPicker(oauth)
+  }
+
+  /**
+   * `/auth`: notice stored vs loginable subscription status.
+   * @returns a success result whose text the command plane notices.
+   */
+  async showAuthStatus(): Promise<{ kind: 'success' | 'error'; text: string }> {
+    const oauth = this.ctx.get('llmOAuth')
+    if (oauth === undefined) {
+      return { kind: 'error', text: 'subscription login is not mounted' }
+    }
+    const stored = new Set((await oauth.list()).map(entry => entry.providerId))
+    return { kind: 'success', text: formatAuthStatus(oauth.loginableProviders(), stored) }
+  }
+
+  /**
+   * `/sessions [id]`: pick a top-level session in this cwd when omitted, then
+   * resume it in-process. The current session is flushed only after the next
+   * agent is live.
+   * @param sessionId - a persisted session id, or empty to open the picker.
+   */
+  async startSessions(sessionId: string): Promise<void> {
+    if (sessionId.length > 0) {
+      await this.switchSession(sessionId)
+      return
+    }
+    await this.openSessionPicker()
+  }
+
+  /**
+   * Overlay of switchable sessions from `ctx.sessionQuery`.
+   */
+  private async openSessionPicker(): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const query = this.ctx.get('sessionQuery')
+    if (query === undefined) {
+      this.notice('session listing is not mounted')
+      return
+    }
+    const entries = await this.listSwitchableSessions(query)
+    if (entries.length === 0) {
+      this.notice('no sessions in this workspace')
+      return
+    }
+    const currentId = this.agent?.id
+    const picker = new OverlayPicker(
+      'Sessions',
+      entries.map(entry => sessionPickerItem(entry, currentId)),
+      '↑/↓ · Enter switch · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          void this.switchSession(item.value)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+      currentId,
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Top-level sessions in this cwd, newest first, with folded titles when cheap.
+   * @param query - the mounted session-query service.
+   * @returns picker rows, always including the live session when it is switchable.
+   */
+  private async listSwitchableSessions(query: SessionQueryEngine): Promise<SessionPickerEntry[]> {
+    const cwd = process.cwd()
+    const records = await query.filterSessions([
+      { kind: 'cwd', values: [cwd] },
+      { kind: 'parent', values: [null] },
+    ])
+    const current = this.agent
+    const listed = new Map<string, SessionRecord>()
+    for (const record of records) {
+      if (!isSwitchableSession(record.header, cwd)) continue
+      listed.set(record.header.id, record)
+    }
+    if (current !== undefined && isSwitchableSession(current.session.header, cwd)) {
+      listed.set(current.id, {
+        header: current.session.header,
+        live: true,
+        persisted: listed.get(current.id)?.persisted ?? false,
+      })
+    }
+    const rows = [...listed.values()]
+    const titles = await this.foldSessionTitles(query, rows.map(record => record.header.id))
+    return rows.map((record) => {
+      const title = titles.get(record.header.id)
+      return {
+        id: record.header.id,
+        header: record.header,
+        ...title === undefined ? {} : { title },
+      }
+    })
+  }
+
+  /**
+   * Fold titles for the picker; a failed batch leaves every row untitled.
+   * @param query - the mounted session-query service.
+   * @param ids - session ids in picker order.
+   * @returns id → title for successful folds.
+   */
+  private async foldSessionTitles(
+    query: SessionQueryEngine,
+    ids: readonly string[],
+  ): Promise<Map<string, string>> {
+    const titles = new Map<string, string>()
+    if (ids.length === 0) return titles
+    let results: SessionTitleObservationResult[]
+    try {
+      results = await query.readTitleSnapshots(ids.map(id => SessionId(id)))
+    } catch {
+      // Listing still works without titles when the corpus read fails.
+      return titles
+    }
+    for (const result of results) {
+      if (result.status !== 'fulfilled') continue
+      const title = result.value.title?.title
+      if (title !== undefined) titles.set(result.sessionId, title)
+    }
+    return titles
+  }
+
+  /**
+   * Resume `id` in-process. Resume first so a failure leaves the current Agent.
+   * @param id - persisted session id.
+   */
+  private async switchSession(id: string): Promise<void> {
+    if (this.agent?.id === id) return
+    if (this.agent?.status === 'running') {
+      this.notice('finish the current turn before switching sessions')
+      return
+    }
+    const agents = this.ctx.get('agents')
+    if (agents === undefined) {
+      this.notice('no agent registry is mounted')
+      return
+    }
+    const selection = this.selection
+    const setup = (agentCtx: Context): void => {
+      if (selection !== undefined) installModelSelection(agentCtx, selection)
+    }
+    const current = selection?.current
+    let next: AgentHandle
+    try {
+      next = await agents.resume({
+        resumeSessionId: SessionId(id),
+        ...current === undefined ? {} : { agentOptions: { provider: current.provider, model: current.model } },
+        setup,
+      })
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+      return
+    }
+    const previous = this.handle
+    this.handle = next
+    this.agent = next.agent
+    await next.agent.whenIdle()
+    this.hideWorking()
+    this.setBusy(false)
+    this.subagents?.reset()
+    this.disposeStatsListener?.()
+    this.disposeStatsListener = undefined
+    this.transcript.reset()
+    this.sessionHeader?.setSessionId(next.agent.id)
+    for (const event of next.agent.session.events) this.applyEvent(event, true)
+    this.wireStats()
+    this.footer.setModel(modelLabel(this.selection?.current))
+    void this.preheatContextWindow(this.selection?.current)
+    this.notice(`session ${next.agent.id}`)
+    this.tui?.requestRender()
+    if (previous !== undefined) {
+      try {
+        await this.ctx.get('sessions')?.flush(previous.agent.session)
+      } catch (error: unknown) {
+        this.notice(error instanceof Error ? error.message : String(error))
+      }
+      await previous.dispose()
+    }
+  }
+
+  /** Resolve `ctx.llmOAuth` or notice that the store is absent. */
+  private requireOAuth(): LlmOAuthService | undefined {
+    const oauth = this.ctx.get('llmOAuth')
+    if (oauth === undefined) {
+      this.notice('subscription login is not mounted')
+      return undefined
+    }
+    return oauth
+  }
+
+  /**
+   * Overlay of loginable catalog providers.
+   * @param oauth - the mounted store.
+   */
+  private openLoginPicker(oauth: LlmOAuthService): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const candidates = oauth.loginableProviders()
+    if (candidates.length === 0) {
+      this.notice('no subscription login providers')
+      return
+    }
+    const picker = new OverlayPicker(
+      'Log in',
+      candidates.map(candidate => ({
+        value: candidate.id,
+        label: candidate.loginLabel ?? candidate.name,
+        description: candidate.id,
+      })),
+      '↑/↓ · Enter start · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          void this.runLogin(oauth, item.value)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Overlay of stored credentials.
+   * @param oauth - the mounted store.
+   */
+  private async openLogoutPicker(oauth: LlmOAuthService): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const stored = await oauth.list()
+    if (stored.length === 0) {
+      this.notice('no subscription logins')
+      return
+    }
+    const names = new Map(oauth.loginableProviders().map(candidate => [candidate.id, candidate.name]))
+    const picker = new OverlayPicker(
+      'Log out',
+      stored.map(entry => ({
+        value: entry.providerId,
+        label: names.get(entry.providerId) ?? entry.providerId,
+      })),
+      '↑/↓ · Enter logout · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          void this.runLogout(oauth, item.value)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Run one provider's OAuth flow through the overlay interaction.
+   * @param oauth - the mounted store.
+   * @param provider - catalog provider id.
+   */
+  private async runLogin(oauth: LlmOAuthService, provider: string): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined) return
+    const interaction = createTuiAuthInteraction(tui, {
+      onOpen: (handle) => {
+        this.hideOverlay()
+        this.overlay = handle
+      },
+      onClose: () => { this.overlay = undefined },
+      onNotice: (text) => { this.notice(text) },
+    })
+    try {
+      await oauth.login(provider, interaction)
+      this.notice(`logged in to ${provider}`)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message !== LOGIN_CANCELLED) this.notice(message)
+    } finally {
+      this.hideOverlay()
+    }
+  }
+
+  /**
+   * Delete one stored credential.
+   * @param oauth - the mounted store.
+   * @param provider - stored provider id.
+   */
+  private async runLogout(oauth: LlmOAuthService, provider: string): Promise<void> {
+    try {
+      await oauth.logout(provider)
+      this.notice(`logged out of ${provider}`)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
   }
 
   /**
@@ -783,6 +1211,7 @@ export class TuiApp {
     if (this.selection === undefined) return
     this.selection.current = next
     this.footer.setModel(modelLabel(next))
+    void this.preheatContextWindow(next)
     this.tui?.requestRender()
     await this.ctx.get('agentDefaultModel')?.saveSelection(next)
     const effort = next.reasoningEffort === undefined ? '' : ` · ${String(next.reasoningEffort)}`
@@ -828,10 +1257,25 @@ function modelLabel(selection: { provider: string; model: string; reasoningEffor
   return selection.reasoningEffort === undefined ? base : `${base} · ${String(selection.reasoningEffort)}`
 }
 
-function modelItem(provider: string, model: LlmModelInfo): SelectItem {
-  return {
-    value: modelValue(provider, model.id),
-    label: `${provider} / ${model.id}`,
-    description: model.name,
+/** Compact one-line capacity/metadata descriptor for a `/model` picker row. */
+function modelItemDescription(
+  model: LlmModelInfo,
+  resolved: LlmResolvedModelInfo | undefined,
+): string {
+  const parts: string[] = [model.name]
+  const ctx = resolved?.context?.contextWindow
+  if (ctx !== undefined) parts.push(`ctx ${compactTokens(ctx)}`)
+  if (resolved?.defaultMaxTokens !== undefined) parts.push(`out ${compactTokens(resolved.defaultMaxTokens)}`)
+  if (resolved?.reasoning?.defaultEffort !== undefined) parts.push(`effort ${String(resolved.reasoning.defaultEffort)}`)
+  if (model.inputModalities !== undefined && model.inputModalities.length > 0) {
+    parts.push(model.inputModalities.join('/'))
   }
+  return parts.join(' · ')
+}
+
+/** Compact K/M token count for inline picker descriptors. */
+function compactTokens(n: number): string {
+  if (n < 1_000) return String(n)
+  if (n < 1_000_000) return `${n >= 100_000 ? String(Math.round(n / 1_000)) : String(Math.round(n / 100) / 10)}K`
+  return `${String(Math.round(n / 100_000) / 10)}M`
 }

@@ -32,6 +32,5 @@ No direct invalidation; tokens never enter a request prefix.
 
 ## Known Limitations and Deferred Work
 
-- **Web has no login UI** — `dsh login` is the product path; the Models page still cannot start an OAuth flow.
+- **Web has no login UI** — `dsh login` and TUI `/login` write this store; the Models page still cannot start an OAuth flow.
 - **A same-UID process can read the document** — owner-only mode stops other OS users, not the model or tools running as the same user.
-- **No TUI `/login`** — the interactive terminal does not run the flow in-process.

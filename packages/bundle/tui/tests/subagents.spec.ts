@@ -76,6 +76,13 @@ describe('SubagentTracker', () => {
     expect(tracker.end(endInfo('run-1', child, 'completed'))).toBe(false)
   })
 
+  it('clears the running count when reset during a live run', () => {
+    const { tracker, counts } = harness()
+    tracker.start(startInfo('run-reset', SessionId('child-reset')))
+    tracker.reset()
+    expect(counts).toEqual([1, 0])
+  })
+
   it('rejects foreign sessions and consumes tracked ones even after settling', () => {
     const { tracker } = harness()
     const child = SessionId('child-3')

@@ -52,7 +52,7 @@ dsh auth
 dsh logout openai-codex
 ```
 
-`login` 省略提供方时，会在已安装 catalog 中带 OAuth 流程的提供方里弹出选择（`openai-codex`、`anthropic`、`xai`、`github-copilot`、`kimi-coding`、`openrouter`、`openrouter-images`、`radius`）。正在运行的 TUI 必须重启，`/model` 才会列出新存储的路由。`--profile` 和 `--dump-config` 会拒绝这些命令。
+`login` 省略提供方时，会在已安装 catalog 中带 OAuth 流程的提供方里弹出选择（`openai-codex`、`anthropic`、`xai`、`github-copilot`、`kimi-coding`、`openrouter`、`openrouter-images`、`radius`）。正在运行的 TUI `/model` 在 `llm/adapters-updated` 之后列出新路由；TUI `/login` 在进程内写入同一份存储。`--profile` 和 `--dump-config` 会拒绝这些命令。
 
 ## 插件管理
 

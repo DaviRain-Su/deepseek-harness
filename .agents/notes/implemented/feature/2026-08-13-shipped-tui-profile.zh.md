@@ -34,7 +34,7 @@ Status: implemented
 
 交互式终端用法是 `dsh` 和 `dsh --resume <id>`（`--profile tui` 等价）。已有且持有用户自有组合包列表的 `$DSH_HOME/profiles/tui` 目录保持不变；缺失的 tui profile 会自动初始化为 base + tui。已删除的 ui 组 TUI 目录树仍然不存在。
 
-runtime 不列出或切换会话，不展示权限提示，也不从 `ctx.skills` 补全 skill 名称。transcript 是用户消息气泡、Markdown 助手块和 `presentCall`/`presentResult` 工具卡片；换行使用 pi-tui 的显示列宽。编辑器、Markdown 和 select-list 的 chrome 使用 Pi 深色主题的 truecolor 色值。主 transcript 是回滚缓冲区，不是备用屏幕。
+斜杠自动补全会建议已注册命令和 `ctx.skills` 中用户可调用的名称（[TUI skill 斜杠补全](2026-08-14-tui-skill-slash-complete.md)）。`/sessions` 切换本 cwd 的顶层会话（[TUI 会话 picker](2026-08-14-tui-session-picker.md)）。批准走 Allow once overlay。transcript 是用户消息气泡、Markdown 助手块和 `presentCall`/`presentResult` 工具卡片；换行使用 pi-tui 的显示列宽。编辑器、Markdown 和 select-list 的 chrome 使用 Pi 深色主题的 truecolor 色值。主 transcript 是回滚缓冲区，不是备用屏幕。
 
 ## 测试
 

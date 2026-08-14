@@ -30,11 +30,13 @@ API 密钥无法为只提供 OAuth 方法的 catalog 提供方（`openai-codex`�
 
 **在没有已存储凭据时仍提供仅 OAuth 的 catalog 路由。** 否决：每个请求仍会在发出之前以 `Provider is not configured` 失败。目录过滤保留；注册靠的是已存储 token 或 settings 已写过的路由。
 
-**Web 登录界面和 TUI `/login`。** 暂缓。产品路径是 `dsh login`；正在运行的 TUI 必须重启才能看到新存储的路由。
+**Web 登录界面。** 暂缓。模型设置页仍无法启动该流程。
+
+**把 TUI `/login` 做成第二套 OAuth 实现。** 否决：TUI overlay 是同一套 `ctx.llmOAuth.login` 上的 `AuthInteraction`（[TUI 登录 overlay](2026-08-14-tui-login-overlay.md)）。
 
 ## 影响
 
-`dsh login openai-codex` 之后再开一次 `dsh`（或重启 TUI），该 catalog 路由就可以在 `/model` 里选中，请求经存储认证，并在锁下刷新。模型设置页仍无法启动该流程；在存入 token、或 settings 文档已经写过该路由之前，Codex 不会出现在**添加提供方**里。同 UID 进程可以读取 `$DSH_HOME/.auth.yaml`；仅所有者权限挡住的是其他 OS 用户，不是模型或以同一用户运行的工具。
+`dsh login openai-codex` 或 TUI `/login` 写入存储；正在运行的 TUI `/model` 在 `llm/adapters-updated` 之后列出该 catalog 路由，请求经存储认证，并在锁下刷新。Web 仍需重新启动。模型设置页仍无法启动该流程；在存入 token、或 settings 文档已经写过该路由之前，Codex 不会出现在**添加提供方**里。同 UID 进程可以读取 `$DSH_HOME/.auth.yaml`；仅所有者权限挡住的是其他 OS 用户，不是模型或以同一用户运行的工具。
 
 ## 测试
 
@@ -44,3 +46,5 @@ API 密钥无法为只提供 OAuth 方法的 catalog 提供方（`openai-codex`�
 
 - [可配置提供方目录不再提供仅以 OAuth 认证的提供方](../bug-fix/2026-08-13-oauth-only-providers-withheld.md) — 本工作保留的目录过滤。
 - [文件型凭据](../../../../packages/credentials/credentials-local/README.md) — OAuth 存储所遵循的文档、锁与 watcher 模式。
+- [TUI 登录 overlay](2026-08-14-tui-login-overlay.md) — 进程内 `/login` / `/logout` / `/auth`，走同一份存储。
+- [TUI 活模型目录](2026-08-14-tui-live-model-catalog.md) — 存储写入后的 `/model` 刷新。

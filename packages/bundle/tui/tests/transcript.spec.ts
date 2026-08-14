@@ -157,6 +157,9 @@ describe('TranscriptView', () => {
     expect(live).toContain('error ● orphan')
     expect(live).toContain('late-ok')
     expect(live).toContain('note')
+    view.reset()
+    expect(view.container.children).toHaveLength(0)
+    expect(view.lastDiff()).toBeUndefined()
 
     const replay = new TranscriptView(() => undefined)
     replay.applyEvent(event('assistant/chunk', {

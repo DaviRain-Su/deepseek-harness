@@ -34,7 +34,7 @@ This does not restore the deleted ui-group TUI tree, its snapshots, its patched 
 
 Interactive terminal use is `dsh` and `dsh --resume <id>` (`--profile tui` is equivalent). Existing `$DSH_HOME/profiles/tui` directories that already hold a user-owned bundle list are left unchanged; a missing tui profile auto-initializes to base + tui. The deleted ui-group TUI tree remains absent.
 
-The runtime does not list or switch sessions, does not present permission prompts, and does not complete skill names from `ctx.skills`. The transcript is a user-message bubble, Markdown assistant blocks, and `presentCall`/`presentResult` tool cards; wrapping uses pi-tui display columns. Editor, Markdown, and select-list chrome use Pi's dark truecolor tokens. The main transcript is a scrollback, not an alternate screen.
+Slash autocomplete offers registered commands and user-invocable `ctx.skills` names ([TUI skill slash complete](2026-08-14-tui-skill-slash-complete.md)). `/sessions` switches a top-level session in this cwd ([TUI session picker](2026-08-14-tui-session-picker.md)). Approval uses the Allow once overlay. The transcript is a user-message bubble, Markdown assistant blocks, and `presentCall`/`presentResult` tool cards; wrapping uses pi-tui display columns. Editor, Markdown, and select-list chrome use Pi's dark truecolor tokens. The main transcript is a scrollback, not an alternate screen.
 
 ## Testing
 

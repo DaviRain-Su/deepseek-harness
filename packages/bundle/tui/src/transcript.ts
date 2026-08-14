@@ -81,6 +81,21 @@ export class TranscriptView {
   }
 
   /**
+   * Drop every child and in-flight stream so a switched session can replay
+   * into an empty transcript. The container object stays mounted.
+   */
+  reset(): void {
+    for (const child of [...this.container.children]) this.container.removeChild(child)
+    this.thinking = undefined
+    this.stream = undefined
+    this.streamed = false
+    this.lastPaintedUser = undefined
+    this.pending.clear()
+    this.pendingInputs.clear()
+    this.cards.length = 0
+  }
+
+  /**
    * Paint a user bubble immediately on editor submit. A later `user/message`
    * with the same text is skipped so the durable event does not duplicate it.
    * @param text - the visible user message body.

@@ -52,7 +52,7 @@ dsh auth
 dsh logout openai-codex
 ```
 
-Omitting the provider on `login` prompts a select over the installed catalog providers that ship an OAuth flow (`openai-codex`, `anthropic`, `xai`, `github-copilot`, `kimi-coding`, `openrouter`, `openrouter-images`, `radius`). A live TUI must restart before `/model` lists a newly stored route. `--profile` and `--dump-config` reject these commands.
+Omitting the provider on `login` prompts a select over the installed catalog providers that ship an OAuth flow (`openai-codex`, `anthropic`, `xai`, `github-copilot`, `kimi-coding`, `openrouter`, `openrouter-images`, `radius`). A live TUI `/model` lists the new route after `llm/adapters-updated`; TUI `/login` writes the same store in-process. `--profile` and `--dump-config` reject these commands.
 
 ## Plugin management
 

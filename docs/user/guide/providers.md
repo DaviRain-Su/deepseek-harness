@@ -20,7 +20,7 @@ Providers with native authentication need their native credentials instead. Bedr
 
 ## Subscription login
 
-`dsh login` is the product path for a catalog provider that ships an OAuth flow. It persists the token in `$DSH_HOME/.auth.yaml`. The next `dsh` or `dsh web` boot registers that catalog route, so the TUI `/model` picker and a later Web model picker can use it. The Models page still cannot start the flow.
+`dsh login` and the TUI `/login` overlay persist a catalog provider's OAuth token in `$DSH_HOME/.auth.yaml`. A live TUI registers the catalog route on `llm/adapters-updated`. Web still needs a new boot. The Models page still cannot start the flow.
 
 ```sh
 dsh login openai-codex
@@ -29,7 +29,7 @@ dsh auth
 dsh logout openai-codex
 ```
 
-Omitting the provider on `login` prompts a select. Restart a live TUI after login. Loginable catalog ids include `openai-codex` (ChatGPT Plus/Pro), `anthropic`, `xai`, `github-copilot`, `kimi-coding`, `openrouter`, `openrouter-images`, and `radius`. Bare `openai` is API-key only.
+Omitting the provider on `login` prompts a select. TUI `/login`, `/logout`, and `/auth` drive the same store. Loginable catalog ids include `openai-codex` (ChatGPT Plus/Pro), `anthropic`, `xai`, `github-copilot`, `kimi-coding`, `openrouter`, `openrouter-images`, and `radius`. Bare `openai` is API-key only.
 
 ## Add a custom provider
 

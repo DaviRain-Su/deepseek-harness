@@ -24,5 +24,5 @@ No direct invalidation; the commands never enter a request prefix.
 
 ## Known Limitations and Deferred Work
 
-- **No in-process TUI `/login`** — the flow runs in the launcher's minimal tree and exits; a live TUI must restart to see a newly stored route.
+- **Launcher-only** — this plugin is not a tui-profile row. TUI `/login` calls `ctx.llmOAuth` with an overlay `AuthInteraction` and does not mount this package.
 - **Web has no counterpart** — the Models page still cannot start an OAuth flow.
