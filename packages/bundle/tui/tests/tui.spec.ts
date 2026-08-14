@@ -462,9 +462,37 @@ describe('tui runtime', () => {
     test.fake.type('\x1b[B')
     test.fake.type('\r')
     await Promise.resolve()
+    await Promise.resolve()
     expect(app['overlay']).toBeDefined()
     test.fake.type('\x1b')
     expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('describes a stored key and base URL on the Models roster', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('llm', {
+      listProviders: () => [],
+      listConfigurableProviders: () => [
+        { provider: 'xai', displayName: 'xAI', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'xai'] },
+      ],
+    } as never)
+    test.ctx.provide('settings', {
+      get: () => ({ providers: { xai: { apiKeyEnv: 'XAI_API_KEY', baseURL: 'https://proxy.example/v1' } } }),
+    } as never)
+    test.ctx.provide('credentials', {
+      describe: () => Promise.resolve({ configured: true, writable: true }),
+    } as never)
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['overlay']).toBeDefined()
+    expect(app['transcript'].container.render(80).join('\n')).not.toContain('command error')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()

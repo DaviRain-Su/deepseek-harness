@@ -143,12 +143,29 @@ export interface ModelsProviderEntry {
    * empty when the whole section is the profile.
    */
   readonly settingsPath?: readonly string[]
+  /** Stored `baseURL` when the profile names one. */
+  readonly baseURL?: string
+  /** True when `credentials.describe` reports a configured reference. */
+  readonly keyConfigured?: boolean
 }
 
 /** The LLM configurable-provider surface; `ctx.llm` satisfies this structurally. */
 export interface ModelsSource {
   /** Configurable providers in declaration order. */
   providers(): Iterable<ModelsProviderEntry>
+}
+
+/**
+ * Models roster description: settings namespace, `key` when a secret is
+ * stored, and the profile `baseURL` when one is set. Never includes the key.
+ * @param provider - one configurable provider.
+ * @returns a ` · `-joined description.
+ */
+export function modelsRowDescription(provider: ModelsProviderEntry): string {
+  const parts = [provider.settingsNs]
+  if (provider.keyConfigured === true) parts.push('key')
+  if (provider.baseURL !== undefined && provider.baseURL.length > 0) parts.push(provider.baseURL)
+  return parts.join(' · ')
 }
 
 /**
@@ -162,7 +179,7 @@ export function modelsRows(source: ModelsSource): SelectItem[] {
     rows.push({
       value: provider.provider,
       label: provider.displayName,
-      description: provider.settingsNs,
+      description: modelsRowDescription(provider),
     })
   }
   return rows

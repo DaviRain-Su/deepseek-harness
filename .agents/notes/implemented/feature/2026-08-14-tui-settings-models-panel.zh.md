@@ -10,7 +10,7 @@ Web 的 Models 页列出可配置的 LLM 提供方。TUI 已有 `/login`、`/log
 
 ## 决策
 
-`/settings` 在外观和权限之间增加 Models 行。确认后打开 picker，列出 `ctx.llm.listConfigurableProviders()`。缺少 `ctx.llm` 时提示 `no LLM runtime is mounted`。存 API key 是[可写 Models](2026-08-14-tui-writable-models.md)切片。
+`/settings` 在外观和权限之间增加 Models 行。确认后打开 picker，列出 `ctx.llm.listConfigurableProviders()`。每行描述是 settings 命名空间、`credentials.describe` 报告已配置引用时的 `key`，以及 profile 已设的 `baseURL`——从不包含密钥本身。缺少 `ctx.llm` 时提示 `no LLM runtime is mounted`。存 API key 是[可写 Models](2026-08-14-tui-writable-models.md)切片。
 
 ## 考虑过的替代方案
 
@@ -24,7 +24,7 @@ Web 的 Models 页列出可配置的 LLM 提供方。TUI 已有 `/login`、`/log
 
 ## 测试
 
-`tests/settings.spec.ts` 钉住 hub 顺序和 `modelsRows`。`tests/tui.spec.ts` 在 `pnpm run test:tui` 下从 Models 行提示缺失的 LLM runtime，并打开 stub `listConfigurableProviders()` 的 picker。仍没有无密钥的组装 TUI 快照。
+`tests/settings.spec.ts` 钉住 hub 顺序、`modelsRows` 和 `modelsRowDescription`。`tests/tui.spec.ts` 在 `pnpm run test:tui` 下从 Models 行提示缺失的 LLM runtime，并打开 stub `listConfigurableProviders()`、`settings.get` 与 `credentials.describe` 的 picker。仍没有无密钥的组装 TUI 快照。
 
 ## 相关
 

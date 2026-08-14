@@ -12,6 +12,7 @@ import {
   baseUrlRefusal,
   deriveKeyRef,
   inventoryRows,
+  modelsRowDescription,
   modelsRows,
   permissionPresetRows,
   promptPermissionPreset,
@@ -88,6 +89,17 @@ describe('settingsSectionRows', () => {
 
   it('returns an empty list when nothing is registered', () => {
     expect(settingsSectionRows({ sections: () => [] })).toEqual([])
+  })
+})
+
+describe('modelsRowDescription', () => {
+  it('joins the namespace with a key mark and base URL when present', () => {
+    expect(modelsRowDescription({ provider: 'xai', displayName: 'xAI', settingsNs: 'llm-pi-ai' }))
+      .toBe('llm-pi-ai')
+    expect(modelsRowDescription({
+      provider: 'xai', displayName: 'xAI', settingsNs: 'llm-pi-ai',
+      keyConfigured: true, baseURL: 'https://proxy.example/v1',
+    })).toBe('llm-pi-ai · key · https://proxy.example/v1')
   })
 })
 

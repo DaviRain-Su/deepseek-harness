@@ -874,7 +874,7 @@ export class TuiApp {
           if (item.value === 'theme') this.openThemePicker()
           else if (item.value === 'permission') this.openPermissionPresetPicker()
           else if (item.value === 'inventory') this.openInventoryPicker()
-          else if (item.value === 'models') this.openModelsPicker()
+          else if (item.value === 'models') void this.openModelsPicker()
           else if (item.value === 'sections') this.openSettingsSectionsPicker()
           else if (item.value === 'file' && documentPath !== undefined) this.notice(`settings file ${documentPath}`)
         },
@@ -979,40 +979,69 @@ export class TuiApp {
 
   /**
    * Models sub-panel: configurable LLM providers from
-   * `ctx.get('llm').listConfigurableProviders()`. Selecting a row opens
-   * Set / Clear API key, Set / Clear base URL, and Login; writes go through
-   * `ctx.credentials` and `ctx.settings.mutate`.
+   * `ctx.get('llm').listConfigurableProviders()`. Each row describes the
+   * settings namespace, whether a key is stored, and the profile `baseURL`.
+   * Selecting a row opens Set / Clear API key, Set / Clear base URL, and
+   * Login; writes go through `ctx.credentials` and `ctx.settings.mutate`.
    */
-  private openModelsPicker(): void {
-    const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
-    const llm = this.ctx.get('llm')
-    if (llm === undefined) {
-      this.notice('no LLM runtime is mounted')
-      return
-    }
-    const providers: ModelsProviderEntry[] = []
-    for (const provider of llm.listConfigurableProviders()) {
-      providers.push({
-        provider: provider.provider,
-        displayName: provider.displayName,
-        settingsNs: provider.settingsNs,
-        settingsPath: provider.settingsPath,
-      })
-    }
-    const picker = new OverlayPicker('Models', modelsRows({ providers: () => providers }), 'Configurable LLM providers · Esc close', {
-      onSelect: (item) => {
-        this.hideOverlay()
-        const selected = providers.find(entry => entry.provider === item.value)
-        if (selected !== undefined) {
-          void this.openProviderActions(selected).catch((error: unknown) => {
-            this.notice(error instanceof Error ? error.message : String(error))
-          })
+  private async openModelsPicker(): Promise<void> {
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const llm = this.ctx.get('llm')
+      if (llm === undefined) {
+        this.notice('no LLM runtime is mounted')
+        return
+      }
+      const settings = this.ctx.get('settings')
+      const credentials = this.ctx.get('credentials')
+      const providers: ModelsProviderEntry[] = []
+      for (const provider of llm.listConfigurableProviders()) {
+        const path = provider.settingsPath ?? []
+        const section = settings?.get(settingsNamespace(provider.settingsNs))
+        const baseURL = section === undefined ? undefined : baseUrlOf(section, path)
+        const ref = this.providerKeyRef({
+          provider: provider.provider,
+          displayName: provider.displayName,
+          settingsNs: provider.settingsNs,
+          settingsPath: provider.settingsPath,
+        })
+        let keyConfigured = false
+        if (credentials !== undefined && ref !== undefined) {
+          try {
+            keyConfigured = (await credentials.describe(credentialRef(ref))).configured
+          } catch {
+            // Leave the key mark off; the roster still lists the provider.
+          }
         }
-      },
-      onCancel: () => { this.hideOverlay() },
-    })
-    this.overlay = showPicker(tui, picker)
+        providers.push({
+          provider: provider.provider,
+          displayName: provider.displayName,
+          settingsNs: provider.settingsNs,
+          settingsPath: provider.settingsPath,
+          ...baseURL === undefined ? {} : { baseURL },
+          ...keyConfigured ? { keyConfigured: true } : {},
+        })
+      }
+      if (!this.canCommitOverlay(operation)) return
+      const picker = new OverlayPicker('Models', modelsRows({ providers: () => providers }), 'Configurable LLM providers · Esc close', {
+        onSelect: (item) => {
+          this.hideOverlay()
+          const selected = providers.find(entry => entry.provider === item.value)
+          if (selected !== undefined) {
+            void this.openProviderActions(selected).catch((error: unknown) => {
+              this.notice(error instanceof Error ? error.message : String(error))
+            })
+          }
+        },
+        onCancel: () => { this.hideOverlay() },
+      })
+      this.overlay = showPicker(operation.tui, picker)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    } finally {
+      this.finishOverlayOperation(operation)
+    }
   }
 
   /**

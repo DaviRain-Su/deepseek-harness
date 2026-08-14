@@ -10,7 +10,7 @@ Web's Models page lists configurable LLM providers. The TUI already has `/login`
 
 ## Decision
 
-`/settings` adds a Models row between Appearance and Permission. Confirming it opens a picker over `ctx.llm.listConfigurableProviders()`. A missing `ctx.llm` notices `no LLM runtime is mounted`. Storing an API key is the [writable Models](2026-08-14-tui-writable-models.md) slice.
+`/settings` adds a Models row between Appearance and Permission. Confirming it opens a picker over `ctx.llm.listConfigurableProviders()`. Each row's description is the settings namespace, `key` when `credentials.describe` reports a configured reference, and the profile `baseURL` when one is set — never the secret. A missing `ctx.llm` notices `no LLM runtime is mounted`. Storing an API key is the [writable Models](2026-08-14-tui-writable-models.md) slice.
 
 ## Alternatives considered
 
@@ -24,7 +24,7 @@ Web's Models page lists configurable LLM providers. The TUI already has `/login`
 
 ## Testing
 
-`tests/settings.spec.ts` pins the hub order and `modelsRows`. `tests/tui.spec.ts` under `pnpm run test:tui` notices a missing LLM runtime from the Models row and opens the picker over a stub `listConfigurableProviders()`. There is still no keyless assembled TUI snapshot.
+`tests/settings.spec.ts` pins the hub order, `modelsRows`, and `modelsRowDescription`. `tests/tui.spec.ts` under `pnpm run test:tui` notices a missing LLM runtime from the Models row and opens the picker over stub `listConfigurableProviders()`, `settings.get`, and `credentials.describe`. There is still no keyless assembled TUI snapshot.
 
 ## Related
 
