@@ -853,15 +853,17 @@ export class TuiApp {
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
    * Appearance reuses the theme picker; Models lists configurable providers
    * and writes API keys; Permission switches the preset through the mounted
-   * `ctx.get('permissionPresets')` service. Escape or an external hide closes
-   * the hub without opening a sub-panel.
+   * `ctx.get('permissionPresets')` service; Settings file notices
+   * `ctx.settings.documentPath` when the provider stores one local file.
+   * Escape or an external hide closes the hub without opening a sub-panel.
    */
   openSettingsPicker(): void {
     const tui = this.tui
     if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const documentPath = this.ctx.get('settings')?.documentPath
     const picker = new OverlayPicker(
       'Settings',
-      settingsHubRows(),
+      settingsHubRows(documentPath),
       '↑/↓ · Enter open · Esc close',
       {
         onSelect: (item) => {
@@ -870,6 +872,7 @@ export class TuiApp {
           else if (item.value === 'permission') this.openPermissionPresetPicker()
           else if (item.value === 'inventory') this.openInventoryPicker()
           else if (item.value === 'models') this.openModelsPicker()
+          else if (item.value === 'file' && documentPath !== undefined) this.notice(`settings file ${documentPath}`)
         },
         onCancel: () => { this.hideOverlay() },
       },

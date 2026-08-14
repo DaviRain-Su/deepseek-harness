@@ -10,6 +10,7 @@
 import type { SelectItem, TUI } from '@oh-my-pi/pi-tui'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { CUSTOM_PRESET, type PresetOption } from '@deepseek-ai/dsh-permission-presets'
+import { formatCwdForFooter, homeDir } from './chrome.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 
 /**
@@ -29,14 +30,24 @@ export interface PermissionPresetSource {
 }
 
 /** Hub rows for the /settings panels.
- * @returns the Appearance, Models, Permission, and Inventory rows.
+ * @param documentPath - `ctx.settings.documentPath` when the provider stores
+ *   one local file; omitted for non-file providers so the File row stays hidden.
+ * @param home - process home used to render `~/…`; defaults to `HOME` / `USERPROFILE`.
+ * @returns Appearance, Models, Permission, Inventory, and Settings file when a path exists.
  */
-export function settingsHubRows(): SelectItem[] {
+export function settingsHubRows(documentPath?: string, home?: string): SelectItem[] {
   return [
     { value: 'theme', label: 'Appearance', description: 'Terminal theme' },
     { value: 'models', label: 'Models', description: 'Configurable LLM providers' },
     { value: 'permission', label: 'Permission', description: 'Sandbox mode + approval policy preset' },
     { value: 'inventory', label: 'Inventory', description: 'Loaded plugins' },
+    ...documentPath === undefined || documentPath.length === 0
+      ? []
+      : [{
+        value: 'file',
+        label: 'Settings file',
+        description: formatCwdForFooter(documentPath, home ?? homeDir()),
+      }],
   ]
 }
 

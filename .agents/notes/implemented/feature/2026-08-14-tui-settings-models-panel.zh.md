@@ -20,7 +20,7 @@ Web 的 Models 页列出可配置的 LLM 提供方。TUI 已有 `/login`、`/log
 
 ## 后果
 
-`/settings` 列出外观、Models、权限和 Inventory。Models 是名册；凭据写入见后续笔记。
+`/settings` 列出外观、Models、权限、Inventory，以及 `documentPath` 存在时的 Settings file（[TUI settings 文件路径](2026-08-14-tui-settings-file-path.md)）。Models 是名册；凭据写入见后续笔记。
 
 ## 测试
 
@@ -32,3 +32,4 @@ Web 的 Models 页列出可配置的 LLM 提供方。TUI 已有 `/login`、`/log
 - [TUI 登录 overlay](2026-08-14-tui-login-overlay.md) — 订阅 OAuth，仍是 Login 行。
 - [TUI 活模型目录](2026-08-14-tui-live-model-catalog.md) — `/model` 列活路由，不是本目录。
 - [TUI 会话状态 chip](2026-08-14-tui-session-status-chips.md) — 同一次改动里的另一块 TUI chrome。
+- [TUI settings 文件路径](2026-08-14-tui-settings-file-path.md) — 说出本地文档的 hub 行。

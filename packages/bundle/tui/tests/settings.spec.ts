@@ -58,8 +58,13 @@ function fakeSession(): Session {
 }
 
 describe('settingsHubRows', () => {
-  it('lists the shipped panels', () => {
+  it('lists the shipped panels and appends Settings file when a path exists', () => {
     expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'models', 'permission', 'inventory'])
+    expect(settingsHubRows('/tmp/dsh/settings.yaml', '/tmp').at(-1)).toEqual({
+      value: 'file',
+      label: 'Settings file',
+      description: '~/dsh/settings.yaml',
+    })
   })
 })
 
