@@ -10,12 +10,13 @@ import { CallId, createAssistantMessage, createToolResultMessage, createUserMess
 import type {} from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { ProcessTerminal } from '@oh-my-pi/pi-tui'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import { apply, Config, internals, TuiApp } from '../src/index.ts'
+import type { SessionPickerEntry } from '../src/sessions.ts'
 import { applyTuiTheme, currentTuiThemeId } from '../src/theme.ts'
 import { FakeTerminal } from './fake-terminal.ts'
 
@@ -637,7 +638,7 @@ describe('tui runtime', () => {
     expect(app['agent']?.session.header.agentPreset).toBe('standard')
     await app.submit('/preset code')
     expect(recomposed).toEqual(['code'])
-    expect(app['agent']?.session.events.some(event => event.type === 'agent-preset/selected')).toBe(true)
+    expect(app['agent']?.session.events.some((event: SessionEvent) => event.type === 'agent-preset/selected')).toBe(true)
     expect(app['transcript'].container.render(80).join('\n')).toContain('preset code')
     app['agent']?.session.append('turn/start', { turn: 1 })
     await app.submit('/preset standard')
@@ -1269,7 +1270,7 @@ describe('tui runtime', () => {
     } as never)
     const listed = await app['listSwitchableSessions'](test.ctx.get('sessionQuery')!)
     expect(filters).toEqual([{ kind: 'parent', values: [null] }])
-    expect(listed.map(entry => entry.id)).toEqual([current, 'session-other'])
+    expect(listed.map((entry: SessionPickerEntry) => entry.id)).toEqual([current, 'session-other'])
     await app.submit('/sessions')
     await Promise.resolve()
     await Promise.resolve()

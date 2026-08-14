@@ -622,7 +622,6 @@ export class TuiApp {
     try {
       const info = await llm.resolveModelInfo(selection.provider, selection.model)
       const resolved = info.context?.contextWindow
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- this.stopped can flip during the awaited resolveModelInfo
       if (resolved !== undefined && !this.stopped) {
         this.preheatedWindow = resolved
         this.refreshStats()
