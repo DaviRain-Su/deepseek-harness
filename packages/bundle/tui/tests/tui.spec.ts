@@ -1381,15 +1381,19 @@ describe('tui runtime', () => {
       tokenUsage: { uncachedInputTokens: 100, outputTokens: 3_000, cacheReadTokens: 900, cacheWriteTokens: 0 },
       contextPressure: { projectedTokens: 48_000, contextWindow: 128_000 },
       sessionStats: { turns: 3, steps: 3, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 1_500, decodeTokens: 3_000 },
+      contextBreakdown: { systemTokens: 120, toolsTokens: 21_500, messageTokens: 477_000 },
     }
     const session = app['agent']!.session
     listener!(session, 'tokenUsage', values['tokenUsage'], 1)
     await Promise.resolve()
-    const rows = app['footer'].render(80)
+    const rows = app['footer'].render(120)
     expect(rows).toHaveLength(3)
     expect(rows[1]).toContain('cache 90%')
     expect(rows[1]).toContain('ctx 38% 48K/128K')
     expect(rows[1]).toContain('3 turns')
+    expect(rows[1]).toContain('~sys 120')
+    expect(rows[1]).toContain('~tools 21.5K')
+    expect(rows[1]).toContain('~msg 477K')
     // A change for a different session is ignored.
     listener!({} as Session, 'tokenUsage', undefined, 2)
     await Promise.resolve()

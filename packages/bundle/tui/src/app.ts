@@ -72,9 +72,9 @@ import { statsLine } from './stats.ts'
 import { formatStatusChips, jobPickerItem } from './status.ts'
 import type { JobStatusRow } from './status.ts'
 // Type-only: load the SessionProjectionMap augmentation (tokenUsage /
-// contextPressure from token-meter, sessionStats from session-stats) so a
-// projection snapshot's values index to their projection types, and the
-// ctx.sessionProjections service typing.
+// contextPressure / contextBreakdown from token-meter, sessionStats from
+// session-stats) so a projection snapshot's values index to their projection
+// types, and the ctx.sessionProjections service typing.
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-session-stats'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -641,7 +641,13 @@ export class TuiApp {
     const agent = this.agent
     if (projections === undefined || agent === undefined) return
     const values = projections.snapshot(agent.session).values
-    this.footer.setStatsLine(statsLine(values.tokenUsage, values.contextPressure, values.sessionStats, this.preheatedWindow))
+    this.footer.setStatsLine(statsLine(
+      values.tokenUsage,
+      values.contextPressure,
+      values.sessionStats,
+      this.preheatedWindow,
+      values.contextBreakdown,
+    ))
     this.refreshStatus()
   }
 

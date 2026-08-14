@@ -12,7 +12,7 @@ Web UI 展示了 TUI 没有的逐会话指标：缓存命中率、计费输入�
 
 页脚改为可变高度。`SessionFooter.render` 在第一行画 cwd，第二行在有内容时画持久统计行，最后一行画 busy/subagents/model。`SessionChrome` 本就用 `footer.length` 计算空白填充，因此多出的行不需要改 chrome。统计行在首轮上报 token 用量之前为空，故引导阶段页脚仍是两行。
 
-`src/stats.ts` 是唯一格式化处，镜像 Web 的 `StatsLine` + `ContextMeter` 计算：`cacheHitPercent` 为 `cacheRead / (uncachedInput + cacheRead + cacheWrite)`，`contextOccupancy` 取 `projectedTokens` 回退到 `pressureTokens` 除以 `contextWindow` 并截到 100%，`formatTokens` / `formatTokensPerSecond` 复用 Web 的紧凑形式。`statsLine` 丢弃每个无数据的分组，其余以 ` · ` 连接，无可展示内容时返回 `''`。
+`src/stats.ts` 是唯一格式化处，镜像 Web 的 `StatsLine` + `ContextMeter` 计算：`cacheHitPercent` 为 `cacheRead / (uncachedInput + cacheRead + cacheWrite)`，`contextOccupancy` 取 `projectedTokens` 回退到 `pressureTokens` 除以 `contextWindow` 并截到 100%，`formatTokens` / `formatTokensPerSecond` 复用 Web 的紧凑形式。同一行追加启发式 `contextBreakdown` 组成（[TUI 页脚 context 分解](2026-08-14-tui-context-breakdown.md)）。`statsLine` 丢弃每个无数据的分组，其余以 ` · ` 连接，无可展示内容时返回 `''`。
 
 `TuiApp.wireStats` 读取一次一致的 `ctx.sessionProjections.snapshot(agent.session)` 切片并订阅 `onChanged`，过滤到本 app 自己的会话；每次变更调用 `refreshStats` 与 `requestRender`。`stop` 释放监听器。TUI 只消费该缝，不拥有任何 fold。`session-stats` 现由 TUI patch 挂载（token-meter 已由 `dsh-base` 挂载），`token-meter`、`session-projection`、`session-stats` 声明为 bundle 的依赖与 tsconfig 引用，使 `SessionProjectionMap` 增强为切片值提供类型。
 
@@ -41,3 +41,4 @@ TUI 页脚现在与 Web UI 的逐会话统计显示对齐：缓存命中率、�
 - [Shipped interactive TUI profile](2026-08-13-shipped-tui-profile.md) — 该 chrome 所在的 bundle。
 - [TUI `/model` 档位 picker 与页脚档位显示](2026-08-15-tui-model-effort-picker.md) — 页脚标签的另一组件，此处未改动。
 - [TUI 会话状态 chip](2026-08-14-tui-session-status-chips.md) — `refreshStats` 同时绘制的强调行。
+- [TUI 页脚 context 分解](2026-08-14-tui-context-breakdown.md) — 本行上的 `~sys` / `~tools` / `~msg` 分组。

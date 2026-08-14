@@ -7,6 +7,7 @@ import {
   billedInputTokens,
   cacheHitPercent,
   contextOccupancy,
+  formatContextBreakdown,
   formatTokens,
   formatTokensPerSecond,
   statsLine,
@@ -81,13 +82,17 @@ describe('statsLine', () => {
     expect(statsLine(usage(), undefined, stats())).toBe('')
   })
 
-  it('groups cache hit, billed input/output, throughput, turns, and occupancy', () => {
+  it('groups cache hit, billed input/output, throughput, turns, occupancy, and composition', () => {
     const line = statsLine(
       usage({ uncachedInputTokens: 100, cacheReadTokens: 900, outputTokens: 3_000 }),
       { projectedTokens: 48_000, contextWindow: 128_000 },
       stats({ turns: 3, decodeMs: 1_500, decodeTokens: 3_000 }),
+      undefined,
+      { systemTokens: 120, toolsTokens: 21_500, messageTokens: 477_000 },
     )
-    expect(line).toBe('cache 90% · in 1K · out 3K · 2000 tok/s · 3 turns · ctx 38% 48K/128K')
+    expect(line).toBe(
+      'cache 90% · in 1K · out 3K · 2000 tok/s · 3 turns · ctx 38% 48K/128K · ~sys 120 · ~tools 21.5K · ~msg 477K',
+    )
   })
 
   it('drops groups with no data and keeps the separator count even', () => {
@@ -97,5 +102,16 @@ describe('statsLine', () => {
     // No usage at all, no stats, only occupancy with a zero numerator.
     expect(statsLine(undefined, { pressureTokens: 0, contextWindow: 64_000 }, undefined))
       .toBe('ctx 0% 0/64K')
+    expect(statsLine(undefined, undefined, undefined, undefined, { systemTokens: 0, toolsTokens: 0, messageTokens: 0 }))
+      .toBe('')
+  })
+})
+
+describe('formatContextBreakdown', () => {
+  it('hides an empty or missing cut and prefixes estimates with ~', () => {
+    expect(formatContextBreakdown(undefined)).toBe('')
+    expect(formatContextBreakdown({ systemTokens: 0, toolsTokens: 0, messageTokens: 0 })).toBe('')
+    expect(formatContextBreakdown({ systemTokens: 120, toolsTokens: 0, messageTokens: 0 }))
+      .toBe('~sys 120 · ~tools 0 · ~msg 0')
   })
 })

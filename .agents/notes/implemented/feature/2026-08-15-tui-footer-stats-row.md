@@ -12,7 +12,7 @@ The Web UI surfaces per-session figures the TUI did not: cache-hit share, billed
 
 The footer is now variable-height. `SessionFooter.render` paints cwd on the first row, the durable stats line on the second when present, and the busy/subagents/model row on the last. `SessionChrome` already computed its blank fill from `footer.length`, so the extra row needs no chrome change. The stats line is empty until the first turn reports token activity, so the footer stays two rows during onboarding.
 
-`src/stats.ts` is the sole formatter, mirroring the Web `StatsLine` + `ContextMeter` math: `cacheHitPercent` is `cacheRead / (uncachedInput + cacheRead + cacheWrite)`, `contextOccupancy` takes `projectedTokens` falling back to `pressureTokens` over `contextWindow` clamped to 100%, and `formatTokens` / `formatTokensPerSecond` reuse the Web compact forms. `statsLine` drops each group whose data is absent and joins the rest with ` · `, returning `''` when nothing is showable.
+`src/stats.ts` is the sole formatter, mirroring the Web `StatsLine` + `ContextMeter` math: `cacheHitPercent` is `cacheRead / (uncachedInput + cacheRead + cacheWrite)`, `contextOccupancy` takes `projectedTokens` falling back to `pressureTokens` over `contextWindow` clamped to 100%, and `formatTokens` / `formatTokensPerSecond` reuse the Web compact forms. The same line appends the heuristic `contextBreakdown` composition ([TUI footer context breakdown](2026-08-14-tui-context-breakdown.md)). `statsLine` drops each group whose data is absent and joins the rest with ` · `, returning `''` when nothing is showable.
 
 `TuiApp.wireStats` reads one consistent `ctx.sessionProjections.snapshot(agent.session)` cut and subscribes to `onChanged`, filtering to the app's own session; each change calls `refreshStats` and `requestRender`. `stop` disposes the listener. The TUI consumes the seam; it owns no fold. `session-stats` is now mounted by the TUI patch (token-meter was already mounted by `dsh-base`), and `token-meter`, `session-projection`, and `session-stats` are declared as the bundle's dependencies and tsconfig references so the `SessionProjectionMap` augmentation types the snapshot values.
 
@@ -41,3 +41,4 @@ The TUI footer now matches the Web UI's per-session stats display: cache-hit per
 - [Shipped interactive TUI profile](2026-08-13-shipped-tui-profile.md) — the bundle this chrome ships on.
 - [TUI `/model` effort picker and footer effort](2026-08-15-tui-model-effort-picker.md) — the other footer label component, unchanged here.
 - [TUI session status chips](2026-08-14-tui-session-status-chips.md) — the accent row `refreshStats` also paints.
+- [TUI footer context breakdown](2026-08-14-tui-context-breakdown.md) — the `~sys` / `~tools` / `~msg` groups on this line.

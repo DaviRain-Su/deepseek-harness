@@ -8,7 +8,11 @@
  * @module @deepseek-ai/dsh-tui/stats
  */
 
-import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter'
+import type {
+  ContextBreakdownProjection,
+  ContextPressureProjection,
+  TokenUsageProjection,
+} from '@deepseek-ai/dsh-token-meter'
 import type { SessionStatsProjection } from '@deepseek-ai/dsh-session-stats'
 
 /**
@@ -100,13 +104,17 @@ export function formatTokensPerSecond(tps: number): string {
  * before the first billed turn.
  *
  * Groups: `cache N%` (when input was billed), `in <billed>` · `out <output>`,
- * `<tps> tok/s` (when decode was timed), `N turn(s)`, and
- * `ctx N% <used>/<window>` (when both pressure and capacity are known).
+ * `<tps> tok/s` (when decode was timed), `N turn(s)`,
+ * `ctx N% <used>/<window>` (when both pressure and capacity are known), and
+ * `~sys` / `~tools` / `~msg` (when any composition figure is non-zero).
+ * The `~` prefix matches Web: these three are heuristic composition, not a
+ * billed total, and they do not sum to `projectedTokens`.
  * @param usage - the session's token-usage projection, when registered.
  * @param pressure - the session's context-pressure projection, when registered.
  * @param stats - the session's whole-log stats projection, when registered.
  * @param preheatedWindow - the route capacity resolved from the live model
  *   selection, used for the `ctx` group before the first request arrives.
+ * @param breakdown - the session's context-composition projection, when registered.
  * @returns the stats line, or '' when nothing to show.
  */
 export function statsLine(
@@ -114,6 +122,7 @@ export function statsLine(
   pressure: ContextPressureProjection | undefined,
   stats: SessionStatsProjection | undefined,
   preheatedWindow?: number,
+  breakdown?: ContextBreakdownProjection,
 ): string {
   const groups: string[] = []
   if (usage !== undefined && (billedInputTokens(usage) > 0 || usage.outputTokens > 0)) {
@@ -132,5 +141,28 @@ export function statsLine(
   if (occupancy !== null) {
     groups.push(`ctx ${occupancy.percent}% ${formatTokens(occupancy.usedTokens)}/${formatTokens(occupancy.contextWindow)}`)
   }
+  const composition = formatContextBreakdown(breakdown)
+  if (composition !== '') groups.push(composition)
   return groups.join(' · ')
+}
+
+/**
+ * Heuristic system / tools / messages composition, prefixed with `~` the
+ * way Web's ContextMeter panel marks estimates. Hidden until any figure is
+ * non-zero so a blank session does not grow the footer.
+ * @param breakdown - the session's context-composition projection, when registered.
+ * @returns the three groups joined by ` · `, or ''.
+ */
+export function formatContextBreakdown(
+  breakdown: ContextBreakdownProjection | undefined,
+): string {
+  if (breakdown === undefined) return ''
+  if (breakdown.systemTokens === 0 && breakdown.toolsTokens === 0 && breakdown.messageTokens === 0) {
+    return ''
+  }
+  return [
+    `~sys ${formatTokens(breakdown.systemTokens)}`,
+    `~tools ${formatTokens(breakdown.toolsTokens)}`,
+    `~msg ${formatTokens(breakdown.messageTokens)}`,
+  ].join(' · ')
 }

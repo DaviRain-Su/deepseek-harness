@@ -98,8 +98,9 @@ export class SessionFooter implements Component {
 
   /**
    * Replace the durable stats line (cache hit, token totals, throughput,
-   * context occupancy). An empty string hides the row, so the footer stays
-   * two rows until the first billed turn reports usage.
+   * context occupancy, heuristic composition). An empty string hides the
+   * row, so the footer stays two rows until the first billed turn reports
+   * usage.
    * @param line - the formatted stats line, or '' to hide it.
    */
   setStatsLine(line: string): void {

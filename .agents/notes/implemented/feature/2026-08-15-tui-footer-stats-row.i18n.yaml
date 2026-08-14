@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-15-tui-footer-stats-row.md
-2026-08-15-tui-footer-stats-row.md: 7307c972ef47818adc149369a3bf1774bab9d4b9
-2026-08-15-tui-footer-stats-row.zh.md: d1a3dabaade31d4008d2e85929e1b2cda53e856c
+2026-08-15-tui-footer-stats-row.md: 51d182ed2f0331e466fd2b924fa0e0b75443de89
+2026-08-15-tui-footer-stats-row.zh.md: 3ddfc3e1f5c2c4d2156aee48b949dda06afd22b0
