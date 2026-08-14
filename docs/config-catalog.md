@@ -2837,17 +2837,19 @@ Source: [`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/inde
 
 ## `@deepseek-ai/dsh-tui`
 
-Requires: `agentDefaultModel` · `agents` · `sessions` · `commands` · `userQuestions`
+Requires: `agentDefaultModel` · `agents` · `sessions` · `commands` · `userQuestions` · `approval`
 
 ```ts config-catalog
-/** Plugin config: the resume id resolved from this app's injected provider. */
+/** Plugin config: resume id from `tuiStartup`, plus the composition-default `/theme` id. */
 export interface Config {
   /** Persisted session id; empty creates a fresh session. */
   resume: string
+  /** Composition default `/theme` id; settings overlay the user's last pick. */
+  theme?: string
 }
 ```
 
-Source: [`packages/bundle/tui/src/index.ts:30`](../packages/bundle/tui/src/index.ts)
+Source: [`packages/bundle/tui/src/index.ts:49`](../packages/bundle/tui/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
