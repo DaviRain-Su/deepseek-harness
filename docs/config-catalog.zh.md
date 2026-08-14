@@ -2839,17 +2839,19 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 
 ## `@deepseek-ai/dsh-tui`
 
-需要：`agentDefaultModel` · `agents` · `sessions` · `commands` · `userQuestions`
+需要：`agentDefaultModel` · `agents` · `sessions` · `commands` · `userQuestions` · `approval`
 
 ```ts config-catalog
-/** Plugin config: the resume id resolved from this app's injected provider. */
+/** Plugin config: resume id from `tuiStartup`, plus the composition-default `/theme` id. */
 export interface Config {
   /** Persisted session id; empty creates a fresh session. */
   resume: string
+  /** Composition default `/theme` id; settings overlay the user's last pick. */
+  theme?: string
 }
 ```
 
-来源：[`packages/bundle/tui/src/index.ts:30`](../packages/bundle/tui/src/index.ts)
+来源：[`packages/bundle/tui/src/index.ts:49`](../packages/bundle/tui/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
