@@ -416,6 +416,31 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('opens the /settings Inventory panel over the loader entries', async () => {
+    const test = await bench()
+    test.ctx.provide('loader', {
+      await: () => Promise.resolve(),
+      entries: () => [
+        { id: 'dsh-session', options: { name: '@deepseek-ai/dsh-session', disabled: false } },
+        { id: 'dsh-shell', options: { name: '@deepseek-ai/dsh-shell', disabled: true } },
+      ],
+    } as never)
+    const { app, code } = await test.run()
+    await app.submit('/settings')
+    expect(app['overlay']).toBeDefined()
+    // Down to the Inventory row (Appearance=0, Permission=1, Inventory=2).
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    // Escape closes the read-only inventory view.
+    test.fake.type('\x1b')
+    expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('hides the Thinking loader on the first streamed token', async () => {
     let release: (() => void) | undefined
     const held = new Promise<void>((resolve) => { release = resolve })

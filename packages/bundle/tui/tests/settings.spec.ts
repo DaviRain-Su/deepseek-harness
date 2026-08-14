@@ -6,10 +6,12 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import { CUSTOM_PRESET, type PresetOption } from '@deepseek-ai/dsh-permission-presets'
 import { OverlayPicker } from '../src/picker.ts'
 import {
+  inventoryRows,
   permissionPresetRows,
   promptPermissionPreset,
   settingsHubRows,
   type PermissionPresetSource,
+  type PluginInventorySource,
   type SettingsOverlayHandle,
 } from '../src/settings.ts'
 
@@ -52,7 +54,35 @@ function fakeSession(): Session {
 
 describe('settingsHubRows', () => {
   it('lists the shipped panels', () => {
-    expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'permission'])
+    expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'permission', 'inventory'])
+  })
+})
+
+describe('inventoryRows', () => {
+  function fakeSource(entries: ReadonlyArray<{ id: string; name: string; disabled: boolean }>): PluginInventorySource {
+    return { entries: () => entries }
+  }
+
+  it('maps each loaded entry to a row in loader order', () => {
+    const rows = inventoryRows(fakeSource([
+      { id: 'dsh-session', name: '@deepseek-ai/dsh-session', disabled: false },
+      { id: 'dsh-shell', name: '@deepseek-ai/dsh-shell', disabled: false },
+    ]))
+    expect(rows.map(row => row.value)).toEqual(['dsh-session', 'dsh-shell'])
+    expect(rows[0]?.label).toBe('@deepseek-ai/dsh-session')
+  })
+
+  it('marks a disabled entry and omits the marker when enabled', () => {
+    const rows = inventoryRows(fakeSource([
+      { id: 'on', name: '@deepseek-ai/dsh-on', disabled: false },
+      { id: 'off', name: '@deepseek-ai/dsh-off', disabled: true },
+    ]))
+    expect(rows[0]?.description).toBeUndefined()
+    expect(rows[1]?.description).toBe('disabled')
+  })
+
+  it('returns an empty list when nothing is loaded', () => {
+    expect(inventoryRows(fakeSource([]))).toEqual([])
   })
 })
 

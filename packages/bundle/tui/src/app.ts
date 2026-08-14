@@ -39,7 +39,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, type PluginInventoryEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, type LoginOverlayHandle } from './login.ts'
 import { createQuestionProvider } from './questions.ts'
@@ -683,6 +683,7 @@ export class TuiApp {
           this.hideOverlay()
           if (item.value === 'theme') this.openThemePicker()
           else if (item.value === 'permission') this.openPermissionPresetPicker()
+          else if (item.value === 'inventory') this.openInventoryPicker()
         },
         onCancel: () => { this.hideOverlay() },
       },
@@ -708,6 +709,25 @@ export class TuiApp {
     }).then((name) => {
       if (name !== undefined) this.notice(`permission ${name}`)
     })
+  }
+
+  /**
+   * Inventory sub-panel: a read-only view of the loader's mounted plugin
+   * entries (`ctx.loader.entries()`). Selecting a row dismisses the view; it
+   * changes nothing.
+   */
+  private openInventoryPicker(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const entries: PluginInventoryEntry[] = []
+    for (const entry of this.ctx.loader.entries()) {
+      entries.push({ id: entry.id, name: entry.options.name, disabled: entry.options.disabled ?? false })
+    }
+    const picker = new OverlayPicker('Inventory', inventoryRows({ entries: () => entries }), 'Loaded plugins · Esc close', {
+      onSelect: () => { this.hideOverlay() },
+      onCancel: () => { this.hideOverlay() },
+    })
+    this.overlay = showPicker(tui, picker)
   }
 
   /**

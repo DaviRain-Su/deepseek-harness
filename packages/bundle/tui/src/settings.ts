@@ -28,13 +28,48 @@ export interface PermissionPresetSource {
 }
 
 /** Hub rows for the panels shipped in 3a.
- * @returns the Appearance and Permission rows.
+ * @returns the Appearance, Permission, and Inventory rows.
  */
 export function settingsHubRows(): SelectItem[] {
   return [
     { value: 'theme', label: 'Appearance', description: 'Terminal theme' },
     { value: 'permission', label: 'Permission', description: 'Sandbox mode + approval policy preset' },
+    { value: 'inventory', label: 'Inventory', description: 'Loaded plugins' },
   ]
+}
+
+/** One loaded plugin entry, as a configuration surface reads it. */
+export interface PluginInventoryEntry {
+  /** Full path id within the loader entry tree. */
+  id: string
+  /** Module specifier the loader imported for this entry. */
+  name: string
+  /** Whether this entry and its descendants are prevented from running. */
+  disabled: boolean
+}
+
+/** The loader surface the hub reads; `ctx.loader` satisfies this structurally. */
+export interface PluginInventorySource {
+  /** Loaded plugin entries in loader order. */
+  entries(): Iterable<PluginInventoryEntry>
+}
+
+/**
+ * Inventory rows for the loaded plugin entries, in loader order. A disabled
+ * entry is marked; a missing description is omitted.
+ * @param source - the loader or a structural stand-in.
+ * @returns one row per loaded plugin entry.
+ */
+export function inventoryRows(source: PluginInventorySource): SelectItem[] {
+  const rows: SelectItem[] = []
+  for (const entry of source.entries()) {
+    rows.push({
+      value: entry.id,
+      label: entry.name,
+      ...entry.disabled ? { description: 'disabled' } : {},
+    })
+  }
+  return rows
 }
 
 /**
