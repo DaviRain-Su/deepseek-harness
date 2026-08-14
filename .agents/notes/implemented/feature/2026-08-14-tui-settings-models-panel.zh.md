@@ -10,7 +10,7 @@ Web 的 Models 页列出可配置的 LLM 提供方。TUI 已有 `/login`、`/log
 
 ## 决策
 
-`/settings` 在外观和权限之间增加 Models 行。确认后打开 picker，列出 `ctx.llm.listConfigurableProviders()`。每行描述是 settings 命名空间、`credentials.describe` 报告已配置引用时的 `key`，以及 profile 已设的 `baseURL`——从不包含密钥本身。缺少 `ctx.llm` 时提示 `no LLM runtime is mounted`。存 API key 是[可写 Models](2026-08-14-tui-writable-models.md)切片。
+`/settings` 在外观和权限之间增加 Models 行。确认后打开 picker，列出 `ctx.llm.listConfigurableProviders()`。每行描述是 settings 命名空间、`credentials.describe` 报告已配置引用时的来源层（`file` / `env` / …）或 `key`，以及 profile 已设的 `baseURL`——从不包含密钥本身。缺少 `ctx.llm` 时提示 `no LLM runtime is mounted`。存 API key 是[可写 Models](2026-08-14-tui-writable-models.md)切片。
 
 ## 考虑过的替代方案
 

@@ -204,6 +204,8 @@ export interface ModelsProviderEntry {
   readonly baseURL?: string
   /** True when `credentials.describe` reports a configured reference. */
   readonly keyConfigured?: boolean
+  /** `credentials.describe` source layer when a key is configured. */
+  readonly keySource?: string
 }
 
 /** The LLM configurable-provider surface; `ctx.llm` satisfies this structurally. */
@@ -213,14 +215,19 @@ export interface ModelsSource {
 }
 
 /**
- * Models roster description: settings namespace, `key` when a secret is
- * stored, and the profile `baseURL` when one is set. Never includes the key.
+ * Models roster description: settings namespace, the credential source
+ * (`file` / `env` / …) or `key` when a secret is stored, and the profile
+ * `baseURL` when one is set. Never includes the secret.
  * @param provider - one configurable provider.
  * @returns a ` · `-joined description.
  */
 export function modelsRowDescription(provider: ModelsProviderEntry): string {
   const parts = [provider.settingsNs]
-  if (provider.keyConfigured === true) parts.push('key')
+  if (provider.keyConfigured === true) {
+    parts.push(provider.keySource !== undefined && provider.keySource.length > 0
+      ? provider.keySource
+      : 'key')
+  }
   if (provider.baseURL !== undefined && provider.baseURL.length > 0) parts.push(provider.baseURL)
   return parts.join(' · ')
 }

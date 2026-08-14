@@ -128,13 +128,17 @@ describe('settingsSectionFieldRows', () => {
 })
 
 describe('modelsRowDescription', () => {
-  it('joins the namespace with a key mark and base URL when present', () => {
+  it('joins the namespace with a key source and base URL when present', () => {
     expect(modelsRowDescription({ provider: 'xai', displayName: 'xAI', settingsNs: 'llm-pi-ai' }))
       .toBe('llm-pi-ai')
     expect(modelsRowDescription({
       provider: 'xai', displayName: 'xAI', settingsNs: 'llm-pi-ai',
       keyConfigured: true, baseURL: 'https://proxy.example/v1',
     })).toBe('llm-pi-ai · key · https://proxy.example/v1')
+    expect(modelsRowDescription({
+      provider: 'xai', displayName: 'xAI', settingsNs: 'llm-pi-ai',
+      keyConfigured: true, keySource: 'file', baseURL: 'https://proxy.example/v1',
+    })).toBe('llm-pi-ai · file · https://proxy.example/v1')
   })
 })
 

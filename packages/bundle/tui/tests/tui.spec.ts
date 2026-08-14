@@ -484,7 +484,7 @@ describe('tui runtime', () => {
       get: () => ({ providers: { xai: { apiKeyEnv: 'XAI_API_KEY', baseURL: 'https://proxy.example/v1' } } }),
     } as never)
     test.ctx.provide('credentials', {
-      describe: () => Promise.resolve({ configured: true, writable: true }),
+      describe: () => Promise.resolve({ configured: true, source: 'file', writable: true }),
     } as never)
     await app.submit('/settings')
     test.fake.type('\x1b[B')

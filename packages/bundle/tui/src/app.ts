@@ -1035,7 +1035,8 @@ export class TuiApp {
   /**
    * Models sub-panel: configurable LLM providers from
    * `ctx.get('llm').listConfigurableProviders()`. Each row describes the
-   * settings namespace, whether a key is stored, and the profile `baseURL`.
+   * settings namespace, the credential source when a key is stored, and the
+   * profile `baseURL`.
    * Selecting a row opens Set / Clear API key, Set / Clear base URL, Set /
    * Clear display name when the profile is nested, and Login; writes go
    * through `ctx.credentials` and `ctx.settings.mutate`.
@@ -1063,9 +1064,12 @@ export class TuiApp {
           settingsPath: provider.settingsPath,
         })
         let keyConfigured = false
+        let keySource: string | undefined
         if (credentials !== undefined && ref !== undefined) {
           try {
-            keyConfigured = (await credentials.describe(credentialRef(ref))).configured
+            const info = await credentials.describe(credentialRef(ref))
+            keyConfigured = info.configured
+            keySource = info.source
           } catch {
             // Leave the key mark off; the roster still lists the provider.
           }
@@ -1077,6 +1081,7 @@ export class TuiApp {
           settingsPath: provider.settingsPath,
           ...baseURL === undefined ? {} : { baseURL },
           ...keyConfigured ? { keyConfigured: true } : {},
+          ...keySource === undefined || keySource.length === 0 ? {} : { keySource },
         })
       }
       if (!this.canCommitOverlay(operation)) return
