@@ -199,7 +199,7 @@ new AgentSideConnection(
   makeAgent,
   ndJsonStream(
     Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
-    Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
+    Readable.toWeb(process.stdin) as unknown as ReadableStream<Uint8Array>,
   ),
 )
 

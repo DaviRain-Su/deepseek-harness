@@ -13,6 +13,9 @@ The `dsh` command is the product launcher for profiles: ordered stacks of plugin
 | `dsh --profile headless "job"` | Run one fresh persisted session, print the final answer, and exit. |
 | `dsh web` | Alias of `--profile web`. |
 | `dsh plugin --profile <name> <pnpm args>` | Manage a profile's plugins by forwarding to pnpm in the profile directory. |
+| `dsh login [provider]` | Log in to a pi-ai subscription provider and persist the token in `$DSH_HOME/.auth.yaml`. |
+| `dsh logout <provider>` | Remove that stored credential. |
+| `dsh auth` | Show which subscription providers currently have a stored credential. |
 
 The invoking directory is the default workspace root. The `web`, `headless`, and `tui` profiles auto-initialize on first use from shipped templates; any other profile must be created through `dsh plugin`.
 

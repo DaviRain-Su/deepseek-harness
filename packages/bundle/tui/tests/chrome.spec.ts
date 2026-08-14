@@ -23,9 +23,9 @@ function stub(lines: string[], hooks?: {
 }): Component {
   return {
     render: () => lines,
-    invalidate: hooks?.invalidate,
-    dispose: hooks?.dispose,
-    setIgnoreTight: hooks?.setIgnoreTight,
+    ...hooks?.invalidate === undefined ? {} : { invalidate: hooks.invalidate },
+    ...hooks?.dispose === undefined ? {} : { dispose: hooks.dispose },
+    ...hooks?.setIgnoreTight === undefined ? {} : { setIgnoreTight: hooks.setIgnoreTight },
   }
 }
 

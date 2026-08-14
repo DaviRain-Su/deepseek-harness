@@ -31,7 +31,7 @@ export function bunVersionSatisfies(raw: string): boolean {
  * @param versions - `process.versions`, or a test double with optional `bun`.
  * @returns whether this process is already bun.
  */
-export function isBunRuntime(versions: { bun?: string } = process.versions): boolean {
+export function isBunRuntime(versions: { bun?: string; node?: string } = process.versions): boolean {
   return typeof versions.bun === 'string'
 }
 

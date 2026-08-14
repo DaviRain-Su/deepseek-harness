@@ -100,7 +100,7 @@ async function boot(): Promise<Spawned & { cwd: string }> {
   child.stderr.on('data', (chunk: string) => stderr.push(chunk))
   const stream = ndJsonStream(
     Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+    Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,
   )
   const makeClient = (_agent: AcpAgent): Client => ({
     sessionUpdate(_params: SessionNotification): Promise<void> {

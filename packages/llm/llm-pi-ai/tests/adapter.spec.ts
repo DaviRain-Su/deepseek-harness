@@ -728,6 +728,17 @@ describe('provider profile lifecycle', () => {
     expect(overlay.size).toBe(resolved.size)
   })
 
+  it('registers stored OAuth catalog routes as empty stubs', () => {
+    const resolved = resolveConfig({}, { oauthProviders: ['openai-codex', 'not-a-catalog'] })
+    expect(resolved.has('openai-codex')).toBe(true)
+    expect(resolved.get('openai-codex')?.apiKeyEnv).toBeUndefined()
+    expect(resolved.has('not-a-catalog')).toBe(false)
+    expect(resolveConfig({
+      enableInstalledCatalog: true,
+    }, { oauthProviders: ['openai-codex'] }).has('openai-codex')).toBe(true)
+    expect(resolveConfig({ enableInstalledCatalog: true }).has('openai-codex')).toBe(false)
+  })
+
   it('registers catalog providers whose ambient API keys are already set', async () => {
     expect(resolveConfig({}, { ambientCatalog: true }).size).toBe(0)
     vi.stubEnv('MOONSHOT_API_KEY', 'kimi-key')

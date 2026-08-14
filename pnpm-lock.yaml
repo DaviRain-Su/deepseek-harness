@@ -168,6 +168,9 @@ importers:
       '@deepseek-ai/dsh-command-goal':
         specifier: workspace:^
         version: link:../../packages/goal/command-goal
+      '@deepseek-ai/dsh-command-login':
+        specifier: workspace:^
+        version: link:../../packages/llm/command-login
       '@deepseek-ai/dsh-compaction-basic':
         specifier: workspace:^
         version: link:../../packages/compaction/compaction-basic
@@ -198,6 +201,9 @@ importers:
       '@deepseek-ai/dsh-launch-environment':
         specifier: workspace:^
         version: link:../../packages/util/launch-environment
+      '@deepseek-ai/dsh-llm-oauth':
+        specifier: workspace:^
+        version: link:../../packages/llm/llm-oauth
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:^
         version: link:../../packages/mcp/mcp-client
@@ -467,6 +473,9 @@ importers:
       '@deepseek-ai/dsh-command-goal':
         specifier: workspace:*
         version: link:../packages/goal/command-goal
+      '@deepseek-ai/dsh-command-login':
+        specifier: workspace:*
+        version: link:../packages/llm/command-login
       '@deepseek-ai/dsh-commands':
         specifier: workspace:*
         version: link:../packages/interaction/commands
@@ -524,6 +533,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:*
         version: link:../packages/llm/llm-deepseek
+      '@deepseek-ai/dsh-llm-oauth':
+        specifier: workspace:*
+        version: link:../packages/llm/llm-oauth
       '@deepseek-ai/dsh-llm-pi-ai':
         specifier: workspace:*
         version: link:../packages/llm/llm-pi-ai
@@ -1055,6 +1067,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../../llm/llm-deepseek
+      '@deepseek-ai/dsh-llm-oauth':
+        specifier: workspace:^
+        version: link:../../llm/llm-oauth
       '@deepseek-ai/dsh-llm-pi-ai':
         specifier: workspace:^
         version: link:../../llm/llm-pi-ai
@@ -5248,6 +5263,31 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
+  packages/llm/command-login:
+    dependencies:
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-cmdline':
+        specifier: workspace:^
+        version: link:../../boot/cmdline
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../llm
+      '@deepseek-ai/dsh-llm-oauth':
+        specifier: workspace:^
+        version: link:../llm-oauth
+      '@earendil-works/pi-ai':
+        specifier: ^0.82.1
+        version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+
   packages/llm/llm:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -5304,6 +5344,37 @@ importers:
         specifier: workspace:^
         version: link:../../util/timeout
 
+  packages/llm/llm-oauth:
+    dependencies:
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: workspace:^
+        version: link:../../util/atomic-write
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:^
+        version: link:../../util/home-paths
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../llm
+      '@earendil-works/pi-ai':
+        specifier: ^0.82.1
+        version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
+
   packages/llm/llm-pi-ai:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -5334,6 +5405,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../llm-deepseek
+      '@deepseek-ai/dsh-llm-oauth':
+        specifier: workspace:^
+        version: link:../llm-oauth
       '@deepseek-ai/dsh-settings':
         specifier: workspace:^
         version: link:../../settings/settings

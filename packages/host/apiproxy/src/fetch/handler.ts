@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { FetchFn } from './client.ts'
 import type { z } from 'zod'
 import type { ApiProxy, MuxFrame, HostFrame } from '../api/index.ts'
 import { sessionLogQuerySchema } from '../api/downloads.schema.ts'
@@ -240,7 +241,7 @@ function sseResponse(frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>): R
  * @param api - the host-side ApiProxy implementation.
  * @returns an object holding `fetch(Request)`; paths outside /api/ return 404.
  */
-export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
+export function toFetchHandler(api: ApiProxy): { fetch: FetchFn } {
   return {
     // Signature matches global fetch: the isomorphic point hands this function to InProcessApiClient as its transport aspect,
     // Clients call in (url, init) form — normalize to Request before handling.

@@ -45,8 +45,19 @@ interface PluginInvocation {
   args: string[]
 }
 
+/** Manage pi-ai subscription logins: `login`, `logout`, `auth`. */
+interface LoginInvocation {
+  mode: 'login'
+  /**
+   * Everything after the launcher's own login subcommand, with the command
+   * name prepended, so `dsh login openai` yields `['login', 'openai']` for
+   * `@deepseek-ai/dsh-command-login` to parse.
+   */
+  args: string[]
+}
+
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation
+export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation | LoginInvocation
 
 /** Launcher flags shared by the default command and the `web` alias. */
 interface BootOptions {
@@ -76,6 +87,9 @@ Examples:
   dsh --profile web --help               the web app's own flags and help
   dsh --help                             this launcher help
   dsh plugin --profile tui add <package> install a plugin into the tui profile
+  dsh login openai-codex             log in to a subscription provider
+  dsh logout openai-codex            remove a stored subscription credential
+  dsh auth                           show subscription-login status
 `
 
 /**
@@ -186,6 +200,26 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       if (args.length === 0) program.error('error: plugin needs pnpm arguments to forward (e.g. add <package>)')
       resolved = { mode: 'plugin', profile: options.profile, args }
     })
+
+  // Pi-ai subscription login. Each subcommand prepends its own name to the
+  // remaining arguments so `@deepseek-ai/dsh-command-login` re-parses the full
+  // command through its own program.
+  const loginMeta: ReadonlyArray<{ command: string; description: string }> = [
+    { command: 'login', description: 'log in to a pi-ai subscription provider, persisting the token' },
+    { command: 'logout', description: 'remove the stored credential for a provider' },
+    { command: 'auth', description: 'show subscription-login status' },
+  ]
+  for (const meta of loginMeta) {
+    const login = program.command(meta.command).description(meta.description)
+    login
+      .allowUnknownOption()
+      .passThroughOptions()
+      .argument('[args...]', 'provider and options, verbatim')
+      .action((args: string[]) => {
+        rejectParentOptions(meta.command)
+        resolved = { mode: 'login', args: [meta.command, ...args] }
+      })
+  }
 
   try {
     program.parse(argv, { from: 'user' })

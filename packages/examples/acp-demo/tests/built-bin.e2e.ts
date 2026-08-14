@@ -153,7 +153,7 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     child.stdout!.on('end', () => passthrough.push(null))
     const stream = ndJsonStream(
       Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
-      Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
+      Readable.toWeb(passthrough) as unknown as ReadableStream<Uint8Array>,
     )
     const updates: SessionNotification['update'][] = []
     const makeClient = (_a: AcpAgent): Client => ({

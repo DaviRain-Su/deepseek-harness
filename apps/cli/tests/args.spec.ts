@@ -56,6 +56,15 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml'], args: ['--resume', 'b', '--patch', 'late.yml'] })
   })
 
+  it('routes login, logout, and auth as launcher-owned subscription commands', () => {
+    expect(parse(['login'])).toEqual({ mode: 'login', args: ['login'] })
+    expect(parse(['login', 'openai-codex'])).toEqual({ mode: 'login', args: ['login', 'openai-codex'] })
+    expect(parse(['logout', 'openai-codex'])).toEqual({ mode: 'login', args: ['logout', 'openai-codex'] })
+    expect(parse(['auth'])).toEqual({ mode: 'login', args: ['auth'] })
+    expect(exitCode(['--profile', 'tui', 'login'])).toBe(1)
+    expect(exitCode(['--dump-config', 'auth'])).toBe(1)
+  })
+
   it('routes the plugin pnpm forwarder', () => {
     expect(parse(['plugin', '--profile', 'tui', 'add', 'turtle-ui']))
       .toEqual({ mode: 'plugin', profile: 'tui', args: ['add', 'turtle-ui'] })

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This reference defines the profile, web-alias, plugin-management, and config-dump command modes. Argv is parsed once through [`src/args.ts`](../src/args.ts), and [`src/bin.ts`](../src/bin.ts) dynamically imports only the selected runner.
+This reference defines the profile, web-alias, plugin-management, subscription-login, and config-dump command modes. Argv is parsed once through [`src/args.ts`](../src/args.ts), and [`src/bin.ts`](../src/bin.ts) dynamically imports only the selected runner.
 
 ## Profile boot
 
@@ -40,6 +40,19 @@ dsh --profile web --patch ./extra.yml --dump-config
 ```
 
 `--dump-default-config` prints only the bundle layers; `--dump-config` adds the profile's `cordis.patch.yml`, the home-level `$DSH_HOME/cordis.patch.yml`, and `--patch` overlays. Both print comments naming the file that supplied each row and every overlay that changed it; `!!js` expressions remain unevaluated, and unmatched patch targets are reported on stderr. A dump never runs app command-line providers, so it shows the composed tree before any app argument is resolved and rejects an invocation that carries app arguments.
+
+## Subscription login
+
+`dsh login`, `dsh logout`, and `dsh auth` are launcher-owned. They do not boot a profile: the CLI starts a minimal tree that mounts [`@deepseek-ai/dsh-llm-oauth`](../../../packages/llm/llm-oauth/README.md) and [`@deepseek-ai/dsh-command-login`](../../../packages/llm/command-login/README.md) so a profile argv parser cannot consume the same tokens. The token document is `$DSH_HOME/.auth.yaml`, which the next profile boot reads because the shipped base mounts the store before the pi-ai adapter.
+
+```sh
+dsh login openai-codex
+dsh login
+dsh auth
+dsh logout openai-codex
+```
+
+Omitting the provider on `login` prompts a select over the installed catalog providers that ship an OAuth flow (`openai-codex`, `anthropic`, `xai`, `github-copilot`, `kimi-coding`, `openrouter`, `openrouter-images`, `radius`). A live TUI must restart before `/model` lists a newly stored route. `--profile` and `--dump-config` reject these commands.
 
 ## Plugin management
 

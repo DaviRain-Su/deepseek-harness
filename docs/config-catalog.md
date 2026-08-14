@@ -891,6 +891,26 @@ Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
 Source: [`packages/llm/llm-deepseek/src/index.ts:62`](../packages/llm/llm-deepseek/src/index.ts)
 
+<a id="deepseek-aidsh-llm-oauth"></a>
+
+## `@deepseek-ai/dsh-llm-oauth`
+
+```ts config-catalog
+/** Plugin config: file location and hot-reload behavior. */
+export interface Config {
+  /** Token document path; defaults to `.auth.yaml` under the harness home. */
+  path?: string
+  /** Harness home used when `path` is omitted; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+  /** Watch the document and hot-publish external edits; defaults to true. */
+  watch?: boolean
+  /** Watcher write-settle window in milliseconds; defaults to 100. */
+  debounceMs?: number
+}
+```
+
+Source: [`packages/llm/llm-oauth/src/index.ts:34`](../packages/llm/llm-oauth/src/index.ts)
+
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
@@ -901,16 +921,19 @@ Requires: `llm`
 /** Plugin configuration: the provider routes this instance owns. */
 export interface Config {
   /**
-   * pi-ai provider routes, keyed by provider. An empty (or omitted) dict is
-   * the dormant settings-driven posture: the adapter mounts with no routes
-   * and registers them the moment a settings section supplies profiles.
+   * pi-ai provider routes, keyed by provider. An empty (or omitted) dict
+   * writes no routes; plugin apply still registers catalog providers whose
+   * ambient API keys are already set, plus `ollama-cloud` when
+   * `OLLAMA_API_KEY` is set, and a settings section supplies or overrides
+   * the rest.
    */
   providers?: Record<string, PiAiProviderProfile>
   /**
    * When true, every installed catalog provider that takes an API key is
    * registered as a route (ambient discovery when `apiKeyEnv` is omitted).
    * Explicit `providers` entries override the matching catalog stub. Default
-   * false keeps web/headless dormant until a settings section supplies routes.
+   * false keeps the written section from dumping the catalog; plugin apply
+   * still auto-registers providers whose ambient API keys are already set.
    */
   enableInstalledCatalog?: boolean
 }
@@ -992,6 +1015,13 @@ export interface PiAiProviderProfile {
   streamIdleTimeoutMs?: number
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
+  /**
+   * Interrogate the route's OpenAI-compatible `GET /models` from `listModels`,
+   * and resolve an id the snapshot catalog does not name. Not a settings
+   * field: the schema omits it, so a written profile cannot set it. Ambient
+   * Ollama Cloud is the only producer.
+   */
+  listsFromEndpoint?: boolean
 }
 
 /** One configured model entry: an id plus the catalog fields it overrides. */
@@ -1086,7 +1116,7 @@ type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
 
 Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:179`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:188`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 
@@ -3086,6 +3116,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-command-compact` — requires `commands` · `compaction` ([`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts))
 - `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
+- `@deepseek-ai/dsh-command-login` — requires `llmOAuth` · `cmdlineArgs` ([`packages/llm/command-login/src/index.ts`](../packages/llm/command-login/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
 - `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))

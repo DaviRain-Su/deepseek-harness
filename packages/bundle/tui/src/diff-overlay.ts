@@ -105,5 +105,5 @@ export class DiffOverlay implements Component {
  * @returns the handle whose `hide` the caller must invoke on close.
  */
 export function showDiffOverlay(tui: TUI, overlay: DiffOverlay): OverlayHandle {
-  return tui.showOverlay(overlay, { fullscreen: true, width: '100%', height: '100%' })
+  return tui.showOverlay(overlay, { fullscreen: true, width: '100%', maxHeight: '100%' })
 }

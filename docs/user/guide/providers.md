@@ -16,7 +16,20 @@ Keys are write-only. The page receives a redacted descriptor after saving, never
 
 Choose **Add provider**, select a provider such as Anthropic or OpenAI, enter its API key, and save. The installed catalog supplies the endpoint, protocol, and model list.
 
-Providers with native authentication need their native credentials instead. Bedrock, Vertex, Azure, and Codex use AWS credentials and a region, an ADC project, an `api-version`, and OAuth respectively; filling only the API-key field does not configure them.
+Providers with native authentication need their native credentials instead. Bedrock, Vertex, Azure, and Codex use AWS credentials and a region, an ADC project, an `api-version`, and OAuth respectively; filling only the API-key field does not configure them. Codex stays off **Add provider** until a subscription token is stored.
+
+## Subscription login
+
+`dsh login` is the product path for a catalog provider that ships an OAuth flow. It persists the token in `$DSH_HOME/.auth.yaml`. The next `dsh` or `dsh web` boot registers that catalog route, so the TUI `/model` picker and a later Web model picker can use it. The Models page still cannot start the flow.
+
+```sh
+dsh login openai-codex
+dsh login
+dsh auth
+dsh logout openai-codex
+```
+
+Omitting the provider on `login` prompts a select. Restart a live TUI after login. Loginable catalog ids include `openai-codex` (ChatGPT Plus/Pro), `anthropic`, `xai`, `github-copilot`, `kimi-coding`, `openrouter`, `openrouter-images`, and `radius`. Bare `openai` is API-key only.
 
 ## Add a custom provider
 

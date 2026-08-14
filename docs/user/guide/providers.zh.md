@@ -16,7 +16,20 @@
 
 选择**添加提供方**，选取 Anthropic 或 OpenAI 等提供方，输入其 API 密钥并保存。已安装目录会提供端点、协议和模型列表。
 
-使用原生认证的提供方需要各自的原生凭据。Bedrock、Vertex、Azure 和 Codex 分别使用 AWS 凭据与区域、ADC 项目、`api-version` 和 OAuth；只填写 API 密钥字段无法完成配置。
+使用原生认证的提供方需要各自的原生凭据。Bedrock、Vertex、Azure 和 Codex 分别使用 AWS 凭据与区域、ADC 项目、`api-version` 和 OAuth；只填写 API 密钥字段无法完成配置。在存入订阅 token 之前，Codex 不会出现在**添加提供方**里。
+
+## 订阅登录
+
+带 OAuth 流程的 catalog 提供方，产品路径是 `dsh login`。它把 token 持久化到 `$DSH_HOME/.auth.yaml`。下一次 `dsh` 或 `dsh web` 启动会注册该 catalog 路由，因此 TUI 的 `/model` 选择器和之后的 Web 模型选择器都能用它。模型设置页仍无法启动该流程。
+
+```sh
+dsh login openai-codex
+dsh login
+dsh auth
+dsh logout openai-codex
+```
+
+`login` 省略提供方时会弹出选择。登录后请重启正在运行的 TUI。可登录的 catalog id 包括 `openai-codex`（ChatGPT Plus/Pro）、`anthropic`、`xai`、`github-copilot`、`kimi-coding`、`openrouter`、`openrouter-images` 和 `radius`。裸 `openai` 只支持 API 密钥。
 
 ## 添加自定义提供方
 

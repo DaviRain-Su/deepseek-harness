@@ -59,6 +59,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-llm-oauth'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
 import { catalogProviderIds, catalogProviderTakesApiKey } from './catalog.ts'
@@ -137,11 +138,9 @@ function directoryEntries(
       declared: !catalog.has(provider),
     })
   }
-  // A provider whose only native method is OAuth leaves this adapter nothing
-  // to authenticate with, so offering it would put a card on the settings page
-  // whose own posture — no key, credentials discovered by the provider — fails
-  // every request. Catalog *membership* is unaffected, so `addEntry` above still
-  // answers what pi-ai ships.
+  // A provider whose only native method is OAuth stays off this half unless a
+  // stored credential already produced a profile stub. Catalog *membership* is
+  // unaffected, so `addEntry` above still answers what pi-ai ships.
   for (const provider of catalog) {
     if (catalogProviderTakesApiKey(provider)) addEntry(provider, provider)
   }
@@ -150,10 +149,15 @@ function directoryEntries(
 }
 
 /** Register one generic pi-ai adapter for all configured provider routes. */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   let current: () => Config = () => config
   let lastRaw: Config | undefined
   let memoized: ReadonlyMap<string, ResolvedPiAiProviderProfile> | undefined
+  let oauthProviderIds: readonly string[] = []
+  const existingOauth = ctx.get('llmOAuth')
+  if (existingOauth !== undefined) {
+    oauthProviderIds = (await existingOauth.list()).map(entry => entry.providerId)
+  }
   /**
    * The resolved profiles for the current configuration, memoized by the raw
    * snapshot's identity — which is also what makes the adapter's own snapshot
@@ -168,7 +172,7 @@ export function apply(ctx: Context, config: Config): void {
   const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = current()
     if (raw === lastRaw && memoized !== undefined) return memoized
-    const next = resolveConfig(raw, { ambientCatalog: true })
+    const next = resolveConfig(raw, { ambientCatalog: true, oauthProviders: oauthProviderIds })
     lastRaw = raw
     memoized = next
     return next
@@ -203,6 +207,11 @@ export function apply(ctx: Context, config: Config): void {
   const adapter = new PiAiAdapter({
     profiles,
     resolveApiKey,
+    // The optional subscription-login store: when a composition mounts
+    // @deepseek-ai/dsh-llm-oauth, an installed catalog route whose provider
+    // ships OAuth authenticates through the stored token (auto-refreshed under
+    // the store lock); without it the pre-OAuth posture holds.
+    resolveCredentials: () => ctx.get('llmOAuth'),
     resolveAttachments: () => ctx.get('attachments'),
   })
   // The full installed catalog is configurable from the moment the plugin
@@ -313,5 +322,37 @@ export function apply(ctx: Context, config: Config): void {
         ctx.logger.error(error)
       }
     },
+  })
+
+  const refreshOauthRoutes = (oauth: { list(): Promise<readonly { providerId: string }[]> }): void => {
+    void oauth.list().then((entries) => {
+      const next = entries.map(entry => entry.providerId)
+      if (deepEqualJson([...next].sort(), [...oauthProviderIds].sort())) return
+      oauthProviderIds = next
+      lastRaw = undefined
+      try {
+        ensureRegistrationFacts()
+      } catch (error) {
+        ctx.logger.error('llm-pi-ai: keeping the previously registered routes after an OAuth store update')
+        ctx.logger.error(error)
+      }
+      try {
+        ensureDirectory()
+      } catch (error) {
+        ctx.logger.error('llm-pi-ai: keeping the previous configurable-provider directory after an OAuth store update')
+        ctx.logger.error(error)
+      }
+    })
+  }
+  if (existingOauth !== undefined) {
+    ctx.on('llm/oauth-updated', () => refreshOauthRoutes(existingOauth))
+  }
+  // Late mount only: a waiting inject on a tree that never mounts the store
+  // is how optional settings raced the invariant host. Product composition
+  // mounts the store before this plugin, so apply already listed above.
+  ctx.inject(['llmOAuth'], (sctx) => {
+    if (existingOauth !== undefined) return
+    refreshOauthRoutes(sctx.llmOAuth)
+    sctx.on('llm/oauth-updated', () => refreshOauthRoutes(sctx.llmOAuth))
   })
 }

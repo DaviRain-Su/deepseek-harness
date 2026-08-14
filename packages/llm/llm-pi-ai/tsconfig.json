@@ -24,6 +24,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../llm-oauth"
+    },
+    {
       "path": "../../attachment/attachment"
     },
     {

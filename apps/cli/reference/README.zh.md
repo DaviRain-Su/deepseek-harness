@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本参考定义 profile 启动、web 别名、插件管理和配置 dump 等命令模式。argv 由 [`src/args.ts`](../src/args.ts) 统一解析一次，[`src/bin.ts`](../src/bin.ts) 只会动态导入选中的运行器。
+本参考定义 profile 启动、web 别名、插件管理、订阅登录和配置 dump 等命令模式。argv 由 [`src/args.ts`](../src/args.ts) 统一解析一次，[`src/bin.ts`](../src/bin.ts) 只会动态导入选中的运行器。
 
 ## Profile 启动
 
@@ -40,6 +40,19 @@ dsh --profile web --patch ./extra.yml --dump-config
 ```
 
 `--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会打印注释，标明每行由哪个文件提供，以及哪些 overlay 修改过它；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。dump 操作不会运行应用的命令行参数提供方，因此展示的是解析任何应用参数之前的组合配置树；如果调用中包含应用参数，dump 会拒绝该调用。
+
+## 订阅登录
+
+`dsh login`、`dsh logout` 和 `dsh auth` 由启动器拥有。它们不启动 profile：CLI（命令行界面）会启动一棵最小树，只挂载 [`@deepseek-ai/dsh-llm-oauth`](../../../packages/llm/llm-oauth/README.md) 和 [`@deepseek-ai/dsh-command-login`](../../../packages/llm/command-login/README.md)，避免 profile 的 argv 解析器消费同一组 token。Token 文档是 `$DSH_HOME/.auth.yaml`；已交付的 base 在 pi-ai 适配器之前挂载该存储，因此下一次 profile 启动会读到它。
+
+```sh
+dsh login openai-codex
+dsh login
+dsh auth
+dsh logout openai-codex
+```
+
+`login` 省略提供方时，会在已安装 catalog 中带 OAuth 流程的提供方里弹出选择（`openai-codex`、`anthropic`、`xai`、`github-copilot`、`kimi-coding`、`openrouter`、`openrouter-images`、`radius`）。正在运行的 TUI 必须重启，`/model` 才会列出新存储的路由。`--profile` 和 `--dump-config` 会拒绝这些命令。
 
 ## 插件管理
 

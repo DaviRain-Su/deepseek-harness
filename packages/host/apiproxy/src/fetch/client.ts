@@ -517,8 +517,11 @@ export abstract class AbstractApiClient implements IApiClient {
  * `new InProcessApiClient(toFetchHandler(api))` never touches the network). Lives here because
  * in-process injection is this package's own capability (handler and client are both local).
  */
+/** Transport fetch. Not `typeof fetch`: bun's fetch also carries `preconnect`. */
+export type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
 export class InProcessApiClient extends AbstractApiClient {
-  constructor(private readonly handler: { fetch: typeof fetch }, timeoutMs?: number) {
+  constructor(private readonly handler: { fetch: FetchFn }, timeoutMs?: number) {
     super(timeoutMs)
   }
 

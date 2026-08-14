@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,6 +7,7 @@ import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import LlmOAuth from '@deepseek-ai/dsh-llm-oauth'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
@@ -940,18 +941,62 @@ describe('configurable-provider directory', () => {
     const ctx = await harness({})
     const offered = ctx.llm.listConfigurableProviders().map(entry => entry.provider)
 
-    // `openai-codex` is the one installed provider that authenticates through
-    // OAuth alone. pi-ai resolves OAuth only from a *stored* credential, this
-    // adapter constructs its collection with no credential store, and nothing
-    // here runs a login flow — so every request on such a route fails with
-    // `Provider is not configured` before it goes out. Offering it would put a
-    // provider on the settings page that no amount of configuration can make
-    // work.
+    // `openai-codex` authenticates through OAuth alone. Without a stored
+    // credential the directory still withholds it; `dsh login` plus the
+    // oauth store is what adds the route.
     expect(offered).not.toContain('openai-codex')
     // A provider that offers OAuth *beside* an api-key method keeps its entry:
     // the key is a path this adapter can serve.
     expect(offered).toContain('anthropic')
     expect(offered).toContain('openai')
+  })
+
+  it('registers an OAuth-only catalog route when the store already holds its credential', async () => {
+    const dir = await home()
+    const path = join(dir, '.auth.yaml')
+    await writeFile(path, 'openai-codex:\n  type: oauth\n  access: a\n  refresh: r\n  expires: 1\n')
+    if (process.platform !== 'win32') await chmod(path, 0o600)
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmOAuth, { path, watch: false })
+    await ctx.plugin(LlmPiAi, {})
+    const ids = ctx.llm.listProviders().map(provider => provider.id)
+    expect(ids).toContain('openai-codex')
+    expect(ctx.llm.listConfigurableProviders().map(entry => entry.provider)).toContain('openai-codex')
+    await ctx.fiber.dispose()
+  })
+
+  it('registers a stored OAuth route after login updates the store', async () => {
+    const dir = await home()
+    const path = join(dir, '.auth.yaml')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmOAuth, { path, watch: false })
+    await ctx.plugin(LlmPiAi, {})
+    expect(ctx.llm.listProviders().map(provider => provider.id)).not.toContain('openai-codex')
+    await ctx.llmOAuth.modify('openai-codex', async () => ({
+      type: 'oauth', access: 'a', refresh: 'r', expires: 1,
+    }))
+    await vi.waitFor(() => {
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('openai-codex')
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('picks up a store that mounts after the adapter', async () => {
+    const dir = await home()
+    const path = join(dir, '.auth.yaml')
+    await writeFile(path, 'openai-codex:\n  type: oauth\n  access: a\n  refresh: r\n  expires: 1\n')
+    if (process.platform !== 'win32') await chmod(path, 0o600)
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {})
+    expect(ctx.llm.listProviders().map(provider => provider.id)).not.toContain('openai-codex')
+    await ctx.plugin(LlmOAuth, { path, watch: false })
+    await vi.waitFor(() => {
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('openai-codex')
+    })
+    await ctx.fiber.dispose()
   })
 
   it('still lists a withheld route a stored profile names, as a catalog route', async () => {

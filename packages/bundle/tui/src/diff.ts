@@ -151,8 +151,8 @@ function lcsRows(oldLines: readonly string[], newLines: readonly string[]): Diff
     const prev = (i - 1) * width
     for (let j = 1; j <= newLen; j += 1) {
       dp[row + j] = oldLine === newLines[j - 1]
-        ? dp[prev + j - 1] + 1
-        : Math.max(dp[prev + j], dp[row + j - 1])
+        ? (dp[prev + j - 1] ?? 0) + 1
+        : Math.max(dp[prev + j] ?? 0, dp[row + j - 1] ?? 0)
     }
   }
   const rows: DiffRow[] = []
@@ -168,7 +168,7 @@ function lcsRows(oldLines: readonly string[], newLines: readonly string[]): Diff
       j -= 1
       continue
     }
-    if (dp[(i - 1) * width + j] > dp[i * width + j - 1]) {
+    if ((dp[(i - 1) * width + j] ?? 0) > (dp[i * width + j - 1] ?? 0)) {
       rows.push({ kind: 'del', text: oldLine })
       i -= 1
     } else {

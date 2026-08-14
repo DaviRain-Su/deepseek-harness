@@ -16,7 +16,7 @@ Status: implemented
 
 目录只提供本适配器认得的东西。`catalogProviderTakesApiKey(provider)` 回答 pi-ai 为某路由安装的提供方是否声明了 api-key 方法——这是 harness 唯一能供给的方法，因为它通过自己的凭据 seam 解析密钥，再作为请求的 `apiKey` 覆盖交给 pi-ai——`directoryEntries()` 跳过不满足它的 catalog 路由。
 
-不尝试实现 OAuth。它需要持久化凭据存储、登录流程，以及运行登录的界面；这三样都不是发布阻塞项的修复，而在它们缺席时仍把提供方摆出来，正是这次报告的成因。
+目录仍然不提供尚未存入凭据的仅 OAuth catalog 路由。持久化存储、`dsh login` 和适配器接线现已存在，由[订阅登录 Agent Note](../feature/2026-08-14-subscription-login.md)负责；本篇只保留目录过滤。已存储的 token 通过联合的 profile 那一半加入（一条空的 catalog 桩），而不是再次提供那张无密钥卡片。
 
 两条边界把「不提供」的范围收窄：
 
@@ -34,10 +34,14 @@ resolution 未被触动。在仅 OAuth 的路由上指定 `apiKeyEnv` 的 profil
 
 ## 影响
 
-`openai-codex` 从提供方选择器、以及模型设置页所 join 的目录中消失；其余已安装提供方一概不受影响，包括在 api-key 方法*之外*另提供 OAuth 的那六个（`anthropic`、`github-copilot`、`kimi-coding`、`openrouter`、`radius`、`xai`），它们保留条目也保留密钥路径。将来若出现只带 OAuth 的提供方，会被自动排除，而不是靠列名。
+在 `$DSH_HOME/.auth.yaml` 为其存入凭据、或 settings 文档已经写过该路由之前，`openai-codex` 仍不出现在提供方选择器和模型设置页所 join 的目录中；其余已安装提供方一概不受影响，包括在 api-key 方法*之外*另提供 OAuth 的那六个（`anthropic`、`github-copilot`、`kimi-coding`、`openrouter`、`radius`、`xai`），它们保留条目也保留密钥路径。将来若出现只带 OAuth 的提供方，在存入凭据之前会被自动排除，而不是靠列名。
 
 两处相邻缺口仍在，并记录在包 README 中：不指定凭据的路由仍走 catalog 提供方自带的发现，而它只读进程环境变量——不读 `~/.aws/credentials`，也不读 harness 凭据 seam——且由此产生的失败仍是兜底的 `PI_AI_ERROR`。
 
 ## 测试
 
 包测试钉住联合的两半：不予提供的路由不出现在 `listConfigurableProviders()` 中，而 `anthropic` 与 `openai` 仍在；已存储的 `openai-codex` profile 仍产出完整条目且 `declared: false`。既有的 resolution 测试未改动且依然通过，这正是「不提供」没有收窄手写 profile 可服务范围的证据。`models-settings` 与 `onboarding-usable-provider` 两条 web e2e golden 恰好各少了 `openai-codex` 这一行选项，录自真实装配的应用。
+
+## 相关
+
+- [面向 pi-ai OAuth 提供方的订阅登录](../feature/2026-08-14-subscription-login.md) — 存储、`dsh login`，以及把已存储 catalog id 注册进适配器。

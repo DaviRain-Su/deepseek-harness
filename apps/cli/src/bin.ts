@@ -44,6 +44,11 @@ switch (invocation.mode) {
     process.exit(runPlugin(invocation.profile, invocation.args))
     break
   }
+  case 'login': {
+    const { runLoginCommand } = await import('./login.ts')
+    process.exit(await runLoginCommand(invocation.args))
+    break
+  }
   case 'dump-config': {
     const { runDumpConfig } = await import('./dump-config.ts')
     runDumpConfig(invocation.profile, invocation.defaultOnly, invocation.patches)

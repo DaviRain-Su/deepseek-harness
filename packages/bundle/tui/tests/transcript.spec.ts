@@ -246,11 +246,11 @@ describe('TranscriptView', () => {
         if (args === 'bad') throw new Error('call')
         return { card: 'generic' as const, title: 'Listed', rawInput: { n: 1 } }
       },
-      presentResult: (_args: unknown, result: { isError: boolean }) => {
+      presentResult: (_args: unknown, result: { isError: boolean; meta?: unknown }) => {
         if (result.meta !== undefined) throw new Error('result')
         return { card: 'generic' as const, title: 'Done', content: [{ type: 'text' as const, text: 'shown' }] }
       },
-    } as ToolDefinition
+    } as unknown as ToolDefinition
     const view = new TranscriptView(name => name === 'ls' ? tool : undefined)
     view.applyEvent(event('tool/call', {
       turn: 1, step: 1, callId: CallId('a'), name: 'ls', arguments: 'not-json',
@@ -290,7 +290,7 @@ describe('TranscriptView', () => {
         title: 'Edit a.ts',
         diffs: [{ path: 'a.ts', oldText: 'old', newText: 'new' }],
       }),
-    } as ToolDefinition
+    } as unknown as ToolDefinition
     const empty = new TranscriptView(() => undefined)
     expect(empty.toggleLastExpand()).toBe(false)
     expect(empty.lastDiff()).toBeUndefined()

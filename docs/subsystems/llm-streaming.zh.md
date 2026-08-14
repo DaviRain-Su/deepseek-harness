@@ -843,6 +843,70 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Source: [`packages/llm/llm/src/index.ts:284`](../../packages/llm/llm/src/index.ts)
 
+<a id="ctxllmoauth--llmoauthservice"></a>
+
+### `ctx.llmOAuth` — `LlmOAuthService`
+
+Durable subscription-login seam: pi-ai CredentialStore over an owner-only file plus the login/logout orchestration and a notification of each committed change.
+
+```ts cordis-catalog
+/**
+ * Read the stored credential for one provider, possibly expired.
+ * @param providerId - provider route whose stored credential to read.
+ * @returns the stored credential, or undefined when none is stored.
+ */
+read(providerId: string): Promise<Credential | undefined>
+
+/**
+ * List stored credential metadata without resolving or exposing secrets.
+ * @returns one entry per stored provider, type `oauth`, with no token material.
+ */
+list(): Promise<readonly CredentialInfo[]>
+
+/**
+ * Serialized write — the only write path. Correct writes (refresh,
+ * login-during-refresh) depend on seeing the current credential. The cycle
+ * runs under both this instance's per-provider operation chain and the
+ * document's cross-process writer lock, so a rotated token from one caller is
+ * visible to the next and competing processes cannot resurrect a stale write.
+ * @param providerId - provider route to update.
+ * @param fn - returns the next credential, or undefined to leave the entry unchanged.
+ * @returns the post-write credential, or undefined when unchanged or absent.
+ */
+modify( providerId: string, fn: (current: Credential | undefined) => Promise<Credential | undefined>, ): Promise<Credential | undefined>
+
+/**
+ * Remove a stored credential (logout): deleting an absent one is a no-op.
+ * @param providerId - provider route whose stored credential to delete.
+ */
+delete(providerId: string): Promise<void>
+
+/**
+ * The installed catalog providers this seam can log into, in catalog order.
+ * @returns each catalog provider that ships an OAuth flow.
+ */
+loginableProviders(): LoginableProvider[]
+
+/**
+ * Run a provider's OAuth login flow and persist the returned credential.
+ * @param provider - an installed catalog provider route with an OAuth flow.
+ * @param interaction - the login interaction (prompts + notifications).
+ * @returns the persisted credential.
+ * @throws LlmError when the provider has no OAuth flow.
+ */
+async login(provider: string, interaction: AuthInteraction): Promise<Credential>
+
+/**
+ * Remove the stored credential for one provider.
+ * @param provider - provider route whose stored credential to delete.
+ */
+logout(provider: string): Promise<void>
+```
+
+Types: [CredentialInfo](credentials.md)
+
+Source: [`packages/llm/llm-oauth/src/index.ts:160`](../../packages/llm/llm-oauth/src/index.ts)
+
 <a id="llm-events"></a>
 
 ### `llm/*` events
@@ -867,6 +931,26 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 ```
 
 Source: [`packages/llm/llm/src/types.ts:23`](../../packages/llm/llm/src/types.ts)
+
+<a id="llmoauth-updated--emit"></a>
+
+#### `llm/oauth-updated` — emit
+
+A provider's OAuth credential was durably committed or removed, whether by a `modify`/`logout` write or an external edit observed in storage. Listener failures are contained and logged; an INVARIANT failure rethrows from synchronous listeners only.
+
+```ts cordis-catalog
+/**
+ * A provider's OAuth credential was durably committed or removed, whether
+ * by a `modify`/`logout` write or an external edit observed in storage.
+ * Listener failures are contained and logged; an INVARIANT failure rethrows
+ * from synchronous listeners only.
+ * @param provider - the provider route whose stored credential changed.
+ * @mode emit
+ */
+'llm/oauth-updated'(provider: string): void
+```
+
+Source: [`packages/llm/llm-oauth/src/index.ts:56`](../../packages/llm/llm-oauth/src/index.ts)
 
 <a id="llmstream--waterfall"></a>
 

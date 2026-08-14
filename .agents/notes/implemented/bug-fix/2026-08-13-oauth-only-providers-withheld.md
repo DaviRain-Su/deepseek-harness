@@ -16,7 +16,7 @@ So the page advertised, with the keyless posture its own placeholder describes, 
 
 The directory offers only what this adapter can authenticate. `catalogProviderTakesApiKey(provider)` answers whether pi-ai's installed provider for a route declares an api-key method — the one method the harness can feed, since it resolves a key through its own credential seam and hands it over as the request's `apiKey` override — and `directoryEntries()` skips the catalog routes that fail it.
 
-OAuth support is not attempted. It needs a persistent credential store, a login flow, and a surface to run it from; none of those is a release-blocking fix, and shipping the offer without them is what produced the report.
+The directory still withholds an OAuth-only catalog route that has no stored credential. The persistent store, `dsh login`, and adapter wiring now exist and are owned by the [subscription-login Agent Note](../feature/2026-08-14-subscription-login.md); this note keeps the directory filter. A stored token joins through the profile half of the union (an empty catalog stub), not by offering the keyless card again.
 
 Two boundaries keep the withholding narrow:
 
@@ -34,10 +34,14 @@ Resolution is untouched. A profile naming `apiKeyEnv` on an OAuth-only route sti
 
 ## Consequences
 
-`openai-codex` disappears from the provider picker and from the directory the Models page joins; every other installed provider is unaffected, including the six that offer OAuth *beside* an api-key method (`anthropic`, `github-copilot`, `kimi-coding`, `openrouter`, `radius`, `xai`), which keep their entries and their key path. A future provider that ships OAuth alone is withheld automatically rather than by name.
+`openai-codex` stays off the provider picker and the directory the Models page joins until `$DSH_HOME/.auth.yaml` holds a credential for it or a settings document already names the route; every other installed provider is unaffected, including the six that offer OAuth *beside* an api-key method (`anthropic`, `github-copilot`, `kimi-coding`, `openrouter`, `radius`, `xai`), which keep their entries and their key path. A future provider that ships OAuth alone is withheld automatically rather than by name until a credential is stored.
 
 Two adjacent gaps remain and are recorded in the package README: a route naming no credential still resolves through the catalog provider's own discovery, which reads process environment variables only — not `~/.aws/credentials`, and not the harness credential seam — and the resulting failure is still the catch-all `PI_AI_ERROR`.
 
 ## Testing
 
 Package tests pin both halves of the union: the withheld route is absent from `listConfigurableProviders()` while `anthropic` and `openai` stay, and a stored `openai-codex` profile still produces a full entry with `declared: false`. The existing resolution tests are unchanged and still pass, which is what shows the withholding did not narrow what a hand-written profile can serve. The `models-settings` and `onboarding-usable-provider` web e2e goldens lost exactly the `openai-codex` option line, recorded against the real assembled application.
+
+## Related
+
+- [Subscription login for pi-ai OAuth providers](../feature/2026-08-14-subscription-login.md) — the store, `dsh login`, and adapter registration of stored catalog ids.

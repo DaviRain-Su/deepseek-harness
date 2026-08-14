@@ -42,6 +42,8 @@
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-llm-deepseek": "workspace:*",
     "@deepseek-ai/dsh-llm-pi-ai": "workspace:*",
+    "@deepseek-ai/dsh-llm-oauth": "workspace:*",
+    "@deepseek-ai/dsh-command-login": "workspace:*",
     "@deepseek-ai/dsh-llm-replay": "workspace:*",
     "@deepseek-ai/dsh-loader-smoke": "workspace:*",
     "@deepseek-ai/dsh-lsp": "workspace:*",

@@ -215,6 +215,13 @@ export interface ResolveConfigOptions {
    * set. Explicit `providers` entries still win.
    */
   ambientCatalog?: boolean
+  /**
+   * Installed catalog provider ids that already have a stored OAuth
+   * credential. Each missing id becomes an empty stub (no `apiKeyEnv`) so
+   * the route authenticates through the credential store. Unknown ids are
+   * ignored; a non-catalog key would otherwise fail as a hand-declared route.
+   */
+  oauthProviders?: readonly string[]
 }
 
 const thinkingBudgets = z.object({
@@ -313,9 +320,11 @@ export function assertServiceable(config: Config): void {
 }
 
 /**
- * Catalog stubs, the ambient Ollama Cloud route, and explicit `providers`
- * entries. A settings profile for the same route wins; OAuth-only catalog
- * providers stay out because this adapter has no login flow.
+ * Catalog stubs, the ambient Ollama Cloud route, stored-OAuth catalog
+ * routes, and explicit `providers` entries. A settings profile for the same
+ * route wins. OAuth-only catalog providers stay out of the dump and ambient
+ * key paths; they join only when {@link ResolveConfigOptions.oauthProviders}
+ * names a stored credential.
  * @param config - plugin or settings section.
  * @param options - apply-path ambient expansion; omitted for settings validation.
  * @returns the route dict `resolveProfiles` materializes.
@@ -343,6 +352,13 @@ export function expandInstalledCatalog(
   if (options?.ambientCatalog === true && providers[OLLAMA_CLOUD_ROUTE] === undefined) {
     const stub = ambientOllamaCloudProfile()
     if (stub !== undefined) providers[OLLAMA_CLOUD_ROUTE] = stub
+  }
+  if (options?.oauthProviders !== undefined) {
+    const catalog = new Set(catalogProviderIds())
+    for (const id of options.oauthProviders) {
+      if (!catalog.has(id) || providers[id] !== undefined) continue
+      providers[id] = {}
+    }
   }
   return providers
 }

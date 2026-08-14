@@ -24,6 +24,7 @@
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
+  CredentialStore,
   Model,
   Models,
   ModelThinkingLevel,
@@ -104,6 +105,15 @@ export interface PiAiAdapterOptions {
    * `MISSING_CREDENTIAL` rather than falling back.
    */
   resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | undefined>
+  /**
+   * Resolve the durable OAuth credential store for an installed catalog route
+   * whose provider ships subscription login, when the composition mounts one.
+   * The store is handed to `createModels`, so pi-ai refreshes expired tokens
+   * under the store lock and resolves request auth from the stored access
+   * token. Absent means OAuth-capable routes without an `apiKeyEnv` cannot
+   * authenticate — the pre-OAuth posture.
+   */
+  resolveCredentials?: () => CredentialStore | undefined
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
 }
@@ -229,7 +239,10 @@ export class PiAiAdapter extends LlmAdapter {
   private current(): PiAiSnapshot {
     const profiles = this.config.profiles()
     if (this.snapshot?.profiles === profiles) return this.snapshot
-    const models: MutableModels = createModels()
+    const credentials = this.config.resolveCredentials?.()
+    const models: MutableModels = createModels(
+      credentials === undefined ? undefined : { credentials },
+    )
     for (const profile of profiles.values()) models.setProvider(profile.piProvider)
     this.snapshot = { profiles, models }
     return this.snapshot

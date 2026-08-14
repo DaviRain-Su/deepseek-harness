@@ -863,6 +863,59 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'llmOAuth',
+    summary: 'Durable subscription-login seam: pi-ai CredentialStore over an owner-only file plus the login/logout orchestration and a notification of each committed change.',
+    description: 'Durable subscription-login seam: pi-ai CredentialStore over an owner-only file plus the login/logout orchestration and a notification of each committed change.',
+    methods: [
+      {
+        signature: 'readonly spec: ResolvedSpec',
+        description: 'Resolved and immutable store parameters.',
+        parameters: [],
+      },
+      {
+        signature: 'read(providerId: string): Promise<Credential | undefined>',
+        description: 'Read the stored credential for one provider, possibly expired.',
+        parameters: [{ name: 'providerId', description: 'provider route whose stored credential to read.' }],
+        returns: 'the stored credential, or undefined when none is stored.',
+      },
+      {
+        signature: 'list(): Promise<readonly CredentialInfo[]>',
+        description: 'List stored credential metadata without resolving or exposing secrets.',
+        parameters: [],
+        returns: 'one entry per stored provider, type `oauth`, with no token material.',
+      },
+      {
+        signature: 'modify( providerId: string, fn: (current: Credential | undefined) => Promise<Credential | undefined>, ): Promise<Credential | undefined>',
+        description: 'Serialized write — the only write path. Correct writes (refresh, login-during-refresh) depend on seeing the current credential. The cycle runs under both this instance\'s per-provider operation chain and the document\'s cross-process writer lock, so a rotated token from one caller is visible to the next and competing processes cannot resurrect a stale write.',
+        parameters: [{ name: 'providerId', description: 'provider route to update.' }, { name: 'fn', description: 'returns the next credential, or undefined to leave the entry unchanged.' }],
+        returns: 'the post-write credential, or undefined when unchanged or absent.',
+      },
+      {
+        signature: 'delete(providerId: string): Promise<void>',
+        description: 'Remove a stored credential (logout): deleting an absent one is a no-op.',
+        parameters: [{ name: 'providerId', description: 'provider route whose stored credential to delete.' }],
+      },
+      {
+        signature: 'loginableProviders(): LoginableProvider[]',
+        description: 'The installed catalog providers this seam can log into, in catalog order.',
+        parameters: [],
+        returns: 'each catalog provider that ships an OAuth flow.',
+      },
+      {
+        signature: 'async login(provider: string, interaction: AuthInteraction): Promise<Credential>',
+        description: 'Run a provider\'s OAuth login flow and persist the returned credential.',
+        parameters: [{ name: 'provider', description: 'an installed catalog provider route with an OAuth flow.' }, { name: 'interaction', description: 'the login interaction (prompts + notifications).' }],
+        returns: 'the persisted credential.',
+        throws: ['LlmError when the provider has no OAuth flow.'],
+      },
+      {
+        signature: 'logout(provider: string): Promise<void>',
+        description: 'Remove the stored credential for one provider.',
+        parameters: [{ name: 'provider', description: 'provider route whose stored credential to delete.' }],
+      },
+    ],
+  },
+  {
     key: 'lsp',
     summary: 'The LSP capability seam (`ctx.lsp`).',
     description: 'The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the four operations and no protocol escape hatch.',
@@ -2390,6 +2443,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'llm/oauth-updated',
+    mode: 'emit',
+    signature: '\'llm/oauth-updated\'(provider: string): void',
+    summary: 'A provider\'s OAuth credential was durably committed or removed, whether by a `modify`/`logout` write or an external edit observed in storage.',
+    description: 'A provider\'s OAuth credential was durably committed or removed, whether by a `modify`/`logout` write or an external edit observed in storage. Listener failures are contained and logged; an INVARIANT failure rethrows from synchronous listeners only.',
+    parameters: [{ name: 'provider', description: 'the provider route whose stored credential changed.' }],
+  },
+  {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
@@ -3318,6 +3379,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export class LlmRuntime extends Service {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
+    name: 'LoginableProvider',
+    declaration: 'export interface LoginableProvider {\n    id: string;\n    name: string;\n    loginLabel?: string;\n}',
+  },
+  {
     name: 'LspHover',
     declaration: 'export interface LspHover {\n    readonly contents: string;\n    readonly range?: LspRange;\n}',
   },
@@ -3612,6 +3677,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResolvedRetryPolicy',
     declaration: 'export type ResolvedRetryPolicy = ResolvedNormalRetryPolicy | ResolvedAlwaysRetryPolicy;',
+  },
+  {
+    name: 'ResolvedSpec',
+    declaration: 'export interface ResolvedSpec {\n    filename: string;\n    watch: boolean;\n    debounceMs: number;\n}',
   },
   {
     name: 'ResolvedSubagentStartRequest',
