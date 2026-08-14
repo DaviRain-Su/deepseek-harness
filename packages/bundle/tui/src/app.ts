@@ -282,7 +282,7 @@ export class TuiApp {
     })
     commands.register({
       name: 'settings',
-      description: 'Open the settings hub (appearance + models + permission)',
+      description: 'Open the settings hub',
       handler: () => {
         this.openSettingsPicker()
         return { kind: 'success' as const, text: '' }
@@ -870,7 +870,8 @@ export class TuiApp {
   /**
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
    * Appearance reuses the theme picker; Models lists configurable providers
-   * and writes API keys, base URLs, and display names; Permission switches the preset through
+   * and writes API keys, base URLs, and display names; Agent preset reuses
+   * `/preset` when `ctx.agentPresets` is mounted; Permission switches the preset through
    * the mounted `ctx.get('permissionPresets')` service; Sections lists
    * `ctx.settings.describe({ redactSecrets: true })` namespaces and field
    * names; Settings file notices `ctx.settings.documentPath` when the
@@ -883,11 +884,13 @@ export class TuiApp {
     const settings = this.ctx.get('settings')
     const documentPath = settings?.documentPath
     const sections = typeof settings?.describe === 'function'
+    const presets = this.ctx.get('agentPresets') !== undefined
     const picker = new OverlayPicker(
       'Settings',
       settingsHubRows({
         ...documentPath === undefined ? {} : { documentPath },
         sections,
+        presets,
       }),
       '↑/↓ · Enter open · Esc close',
       {
@@ -895,6 +898,7 @@ export class TuiApp {
           this.hideOverlay()
           if (item.value === 'theme') this.openThemePicker()
           else if (item.value === 'permission') this.openPermissionPresetPicker()
+          else if (item.value === 'preset') void this.openPresetPicker()
           else if (item.value === 'inventory') this.openInventoryPicker()
           else if (item.value === 'models') void this.openModelsPicker()
           else if (item.value === 'sections') this.openSettingsSectionsPicker()

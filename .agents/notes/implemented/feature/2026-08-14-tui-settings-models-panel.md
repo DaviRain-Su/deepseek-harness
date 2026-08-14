@@ -20,7 +20,7 @@ Web's Models page lists configurable LLM providers. The TUI already has `/login`
 
 ## Consequences
 
-`/settings` lists Appearance, Models, Permission, Inventory, Sections when `describe` is available ([TUI settings sections](2026-08-14-tui-settings-sections.md)), and Settings file when `documentPath` is set ([TUI settings file path](2026-08-14-tui-settings-file-path.md)). Models is the roster; credential writes live on the later note.
+`/settings` lists Appearance, Models, Permission, Agent preset when `ctx.agentPresets` is mounted ([TUI agent presets](2026-08-14-tui-agent-presets.md)), Inventory, Sections when `describe` is available ([TUI settings sections](2026-08-14-tui-settings-sections.md)), and Settings file when `documentPath` is set ([TUI settings file path](2026-08-14-tui-settings-file-path.md)). Models is the roster; credential writes live on the later note.
 
 ## Testing
 

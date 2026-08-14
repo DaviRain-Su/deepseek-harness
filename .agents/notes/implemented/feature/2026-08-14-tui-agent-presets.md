@@ -10,7 +10,7 @@ Web composes each session from [`dsh-agent-presets`](../../../../packages/preset
 
 ## Decision
 
-The TUI patch inserts `agent-presets` with `default: standard` and disables the same host-plane tool rows Web disables, so a session does not see both copies. `apps/cli`'s `composeProfile` still patches the shipped root when the row exists. `tui-runtime` resolves the default before `agents.create` so `meta.agentPreset` is snapshotted, mounts in `setup`, and on resume mounts `resolveSessionPreset(session)`. `/preset` lists the roster, recomposes a blank session, and appends `agent-preset/selected`. A `turn/start` locks the composition. Missing `ctx.agentPresets` notices and leaves the host composition. Subagent children still use `composeFrom()`, never a second `mount()` by id. The footer shows `preset <id>` when `composedPreset` answers.
+The TUI patch inserts `agent-presets` with `default: standard` and disables the same host-plane tool rows Web disables, so a session does not see both copies. `apps/cli`'s `composeProfile` still patches the shipped root when the row exists. `tui-runtime` resolves the default before `agents.create` so `meta.agentPreset` is snapshotted, mounts in `setup`, and on resume mounts `resolveSessionPreset(session)`. `/preset` lists the roster, recomposes a blank session, and appends `agent-preset/selected`. When `ctx.agentPresets` is mounted, `/settings` also offers an Agent preset row that opens the same picker. A `turn/start` locks the composition. Missing `ctx.agentPresets` notices and leaves the host composition. Subagent children still use `composeFrom()`, never a second `mount()` by id. The footer shows `preset <id>` when `composedPreset` answers.
 
 ## Alternatives considered
 
@@ -26,7 +26,7 @@ A shipped `dsh` TUI session runs on `standard` unless the log records another pr
 
 ## Testing
 
-`tests/presets.spec.ts` pins `sessionBlank` and `presetPickerItem`. `tests/tui.spec.ts` under `pnpm run test:tui` notices a missing roster, mounts `standard` on create, recomposes `/preset code`, and locks after `turn/start`. There is still no keyless assembled TUI snapshot.
+`tests/presets.spec.ts` pins `sessionBlank` and `presetPickerItem`. `tests/tui.spec.ts` under `pnpm run test:tui` notices a missing roster, mounts `standard` on create, recomposes `/preset code`, locks after `turn/start`, and opens the same picker from the `/settings` hub. There is still no keyless assembled TUI snapshot.
 
 ## Related
 

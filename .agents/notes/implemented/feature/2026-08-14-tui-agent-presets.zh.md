@@ -10,7 +10,7 @@ Web 用 [`dsh-agent-presets`](../../../../packages/preset/agent-presets/README.m
 
 ## 决策
 
-TUI patch 插入 `agent-presets`（`default: standard`），并禁用与 Web 相同的宿主平面工具行，避免会话同时看到两份拷贝。`apps/cli` 的 `composeProfile` 仍在该行存在时补上随附根目录。`tui-runtime` 在 `agents.create` 之前解析默认值，以便 `meta.agentPreset` 写入 header；在 `setup` 里 `mount`；恢复时 `mount` `resolveSessionPreset(session)`。`/preset` 列出花名册，在空白会话上 `recompose`，并追加 `agent-preset/selected`。出现 `turn/start` 后组合锁定。缺少 `ctx.agentPresets` 时提示，并保留宿主组合。子 agent 仍走 `composeFrom()`，绝不按 id 再 `mount()`。`composedPreset` 有答案时，页脚显示 `preset <id>`。
+TUI patch 插入 `agent-presets`（`default: standard`），并禁用与 Web 相同的宿主平面工具行，避免会话同时看到两份拷贝。`apps/cli` 的 `composeProfile` 仍在该行存在时补上随附根目录。`tui-runtime` 在 `agents.create` 之前解析默认值，以便 `meta.agentPreset` 写入 header；在 `setup` 里 `mount`；恢复时 `mount` `resolveSessionPreset(session)`。`/preset` 列出花名册，在空白会话上 `recompose`，并追加 `agent-preset/selected`。挂载了 `ctx.agentPresets` 时，`/settings` 也会出现 Agent preset 行，打开同一个 picker。出现 `turn/start` 后组合锁定。缺少 `ctx.agentPresets` 时提示，并保留宿主组合。子 agent 仍走 `composeFrom()`，绝不按 id 再 `mount()`。`composedPreset` 有答案时，页脚显示 `preset <id>`。
 
 ## 考虑过的替代方案
 
@@ -26,7 +26,7 @@ TUI patch 插入 `agent-presets`（`default: standard`），并禁用与 Web 相
 
 ## 测试
 
-`tests/presets.spec.ts` 固定 `sessionBlank` 和 `presetPickerItem`。`tests/tui.spec.ts` 在 `pnpm run test:tui` 下提示缺失花名册、创建时 mount `standard`、`/preset code` 重新组合，并在 `turn/start` 后锁定。仍然没有无密钥的组装 TUI 快照。
+`tests/presets.spec.ts` 固定 `sessionBlank` 和 `presetPickerItem`。`tests/tui.spec.ts` 在 `pnpm run test:tui` 下提示缺失花名册、创建时 mount `standard`、`/preset code` 重新组合、在 `turn/start` 后锁定，并从 `/settings` hub 打开同一个 picker。仍然没有无密钥的组装 TUI 快照。
 
 ## 相关
 

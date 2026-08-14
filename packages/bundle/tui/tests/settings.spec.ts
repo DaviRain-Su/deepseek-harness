@@ -66,8 +66,10 @@ function fakeSession(): Session {
 }
 
 describe('settingsHubRows', () => {
-  it('lists the shipped panels and appends Sections and Settings file when those seams exist', () => {
+  it('lists the shipped panels and appends Agent preset, Sections, and Settings file when those seams exist', () => {
     expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'models', 'permission', 'inventory'])
+    expect(settingsHubRows({ presets: true }).map(row => row.value))
+      .toEqual(['theme', 'models', 'permission', 'preset', 'inventory'])
     expect(settingsHubRows({ sections: true }).map(row => row.value))
       .toEqual(['theme', 'models', 'permission', 'inventory', 'sections'])
     expect(settingsHubRows({ documentPath: '/tmp/dsh/settings.yaml', home: '/tmp' }).at(-1)).toEqual({

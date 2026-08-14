@@ -781,6 +781,28 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('opens the agent-preset picker from the settings hub', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('agentPresets', {
+      list: () => Promise.resolve([{ id: 'standard', name: 'Standard' }]),
+      composedPreset: () => 'standard',
+    } as never)
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\x1b')
+    expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('notices a missing agent-preset roster on /preset', async () => {
     const test = await bench()
     const { app, code } = await test.run()

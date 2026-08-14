@@ -3,9 +3,10 @@
  * whose rows are sub-panels; `app.ts` dispatches a confirmed row. Permission
  * reads the mounted `PermissionPresetService` and writes through `set`.
  * Models lists configurable providers and offers Set / Clear API key, Set /
- * Clear base URL, Set / Clear display name, plus Login; Inventory is a
- * read-only roster; Sections lists namespaces and, when a section has field
- * names, a name-only field picker.
+ * Clear base URL, Set / Clear display name, plus Login; Agent preset reuses
+ * `/preset` when the roster is mounted; Inventory is a read-only roster;
+ * Sections lists namespaces and, when a section has field names, a name-only
+ * field picker.
  * @module @deepseek-ai/dsh-tui/settings
  */
 
@@ -39,17 +40,22 @@ export interface SettingsHubOptions {
   home?: string
   /** True when `ctx.settings.describe` is available. */
   sections?: boolean
+  /** True when `ctx.agentPresets` is mounted. */
+  presets?: boolean
 }
 
 /** Hub rows for the /settings panels.
- * @param options - Settings file and Sections rows when those seams exist.
- * @returns Appearance, Models, Permission, Inventory, then Sections and Settings file when present.
+ * @param options - Settings file, Agent preset, and Sections rows when those seams exist.
+ * @returns Appearance, Models, Permission, then Agent preset, Inventory, Sections, and Settings file when present.
  */
 export function settingsHubRows(options: SettingsHubOptions = {}): SelectItem[] {
   return [
     { value: 'theme', label: 'Appearance', description: 'Terminal theme' },
     { value: 'models', label: 'Models', description: 'Configurable LLM providers' },
     { value: 'permission', label: 'Permission', description: 'Sandbox mode + approval policy preset' },
+    ...options.presets === true
+      ? [{ value: 'preset', label: 'Agent preset', description: 'Session composition roster' }]
+      : [],
     { value: 'inventory', label: 'Inventory', description: 'Loaded plugins' },
     ...options.sections === true
       ? [{ value: 'sections', label: 'Sections', description: 'Registered settings namespaces' }]
