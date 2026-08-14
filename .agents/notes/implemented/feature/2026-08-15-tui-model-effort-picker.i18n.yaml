@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-15-tui-model-effort-picker.md
+2026-08-15-tui-model-effort-picker.md: 90fd1843f6a2e5d9d857f4eaba4c8b1fcd00098d
+2026-08-15-tui-model-effort-picker.zh.md: 567ee71f38963ae141d1f25da50cfdcbfb4b37e4
