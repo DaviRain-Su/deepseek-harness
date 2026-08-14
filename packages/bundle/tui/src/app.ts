@@ -885,7 +885,10 @@ export class TuiApp {
     const sections = typeof settings?.describe === 'function'
     const picker = new OverlayPicker(
       'Settings',
-      settingsHubRows({ documentPath, sections }),
+      settingsHubRows({
+        ...documentPath === undefined ? {} : { documentPath },
+        sections,
+      }),
       '↑/↓ · Enter open · Esc close',
       {
         onSelect: (item) => {
