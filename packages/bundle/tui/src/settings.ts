@@ -3,10 +3,11 @@
  * whose rows are sub-panels; `app.ts` dispatches a confirmed row. Permission
  * reads the mounted `PermissionPresetService` and writes through `set`.
  * Models lists configurable providers and offers Set / Clear API key, Set /
- * Clear base URL, Set / Clear display name, plus Login; Agent preset reuses
- * `/preset` when the roster is mounted; Inventory is a read-only roster;
- * Sections lists namespaces and, when a section has field names, a name-only
- * field picker.
+ * Clear base URL, Set / Clear display name, plus Login; Web search writes the
+ * DeepSeek search key and endpoint when that namespace is registered; Agent
+ * preset reuses `/preset` when the roster is mounted; Inventory is a
+ * read-only roster; Sections lists namespaces and, when a section has field
+ * names, a name-only field picker.
  * @module @deepseek-ai/dsh-tui/settings
  */
 
@@ -42,16 +43,27 @@ export interface SettingsHubOptions {
   sections?: boolean
   /** True when `ctx.agentPresets` is mounted. */
   presets?: boolean
+  /** True when `describe()` lists the DeepSeek search namespace. */
+  webSearch?: boolean
 }
 
+/** Settings namespace of the DeepSeek search provider. */
+export const WEB_SEARCH_SETTINGS_NS = 'web-search-deepseek'
+
+/** Credential reference the search provider resolves when the section names none. */
+export const WEB_SEARCH_DEFAULT_KEY_REF = 'DEEPSEEK_API_KEY'
+
 /** Hub rows for the /settings panels.
- * @param options - Settings file, Agent preset, and Sections rows when those seams exist.
- * @returns Appearance, Models, Permission, then Agent preset, Inventory, Sections, and Settings file when present.
+ * @param options - Settings file, Agent preset, Web search, and Sections rows when those seams exist.
+ * @returns Appearance, Models, then Web search, Permission, Agent preset, Inventory, Sections, and Settings file when present.
  */
 export function settingsHubRows(options: SettingsHubOptions = {}): SelectItem[] {
   return [
     { value: 'theme', label: 'Appearance', description: 'Terminal theme' },
     { value: 'models', label: 'Models', description: 'Configurable LLM providers' },
+    ...options.webSearch === true
+      ? [{ value: 'web-search', label: 'Web search', description: 'DeepSeek search key and endpoint' }]
+      : [],
     { value: 'permission', label: 'Permission', description: 'Sandbox mode + approval policy preset' },
     ...options.presets === true
       ? [{ value: 'preset', label: 'Agent preset', description: 'Session composition roster' }]
@@ -308,6 +320,17 @@ function profileStringOf(section: unknown, path: readonly string[], field: strin
  */
 export function apiKeyEnvOf(section: unknown, path: readonly string[]): string | undefined {
   return profileStringOf(section, path, 'apiKeyEnv')
+}
+
+/**
+ * Credential reference the DeepSeek search provider resolves. The section's
+ * `apiKeyEnv` wins; otherwise {@link WEB_SEARCH_DEFAULT_KEY_REF}. Never
+ * derives a `WEB_SEARCH_DEEPSEEK_API_KEY` name.
+ * @param section - `settings.get(web-search-deepseek)`, or undefined.
+ * @returns a POSIX identifier.
+ */
+export function webSearchKeyRef(section: unknown): string {
+  return apiKeyEnvOf(section, []) ?? WEB_SEARCH_DEFAULT_KEY_REF
 }
 
 /**

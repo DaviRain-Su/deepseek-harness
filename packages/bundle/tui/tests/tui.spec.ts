@@ -595,6 +595,80 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('opens Web search from the /settings hub when that namespace is registered', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      get: () => ({}),
+      describe: () => [{ ns: 'web-search-deepseek', applies: 'live' }],
+    } as never)
+    test.ctx.provide('credentials', {
+      describe: () => Promise.resolve({ configured: false, writable: true }),
+    } as never)
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\x1b')
+    expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('stores a Web search key and base URL from /settings', async () => {
+    const test = await bench()
+    const stored: Array<{ ref: string; value: string }> = []
+    const unset: string[] = []
+    const mutate: Array<{ op: string; path: readonly string[]; value?: unknown }> = []
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      get: () => ({ apiKeyEnv: 'SEARCH_KEY', baseURL: 'https://search.example/v1' }),
+      describe: () => [{ ns: 'web-search-deepseek', applies: 'live' }],
+      mutate: (_ns: string, ops: ReadonlyArray<{ op: string; path: readonly string[]; value?: unknown }>) => {
+        mutate.push(...ops)
+        return Promise.resolve()
+      },
+    } as never)
+    test.ctx.provide('credentials', {
+      describe: () => Promise.resolve({ configured: true, writable: true }),
+      set: (ref: string, value: string) => {
+        stored.push({ ref, value })
+        return Promise.resolve()
+      },
+      unset: (ref: string) => {
+        unset.push(ref)
+        return Promise.resolve()
+      },
+    } as never)
+    await app['storeWebSearchKey']('sk-search')
+    expect(stored).toEqual([{ ref: 'SEARCH_KEY', value: 'sk-search' }])
+    await app['clearWebSearchKey']()
+    expect(unset).toEqual(['SEARCH_KEY'])
+    expect(app['transcript'].container.render(80).join('\n')).toContain('API key cleared for Web search')
+    await app['storeProviderBaseUrl']({
+      provider: 'web-search-deepseek',
+      displayName: 'Web search',
+      settingsNs: 'web-search-deepseek',
+      settingsPath: [],
+    }, 'https://search.example/v1')
+    expect(mutate).toEqual([{ op: 'set', path: ['baseURL'], value: 'https://search.example/v1' }])
+    await app['clearProviderBaseUrl']({
+      provider: 'web-search-deepseek',
+      displayName: 'Web search',
+      settingsNs: 'web-search-deepseek',
+      settingsPath: [],
+    })
+    expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['baseURL'] })
+    expect(app['transcript'].container.render(80).join('\n')).toContain('base URL cleared for Web search')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('reports a missing permission preset service from the settings hub', async () => {
     const test = await bench()
     const { app, code } = await test.run()

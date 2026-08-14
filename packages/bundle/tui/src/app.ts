@@ -42,7 +42,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, displayNameOf, displayNameRefusal, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, displayNameOf, displayNameRefusal, webSearchKeyRef, WEB_SEARCH_SETTINGS_NS, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
 import { presetPickerItem, sessionBlank } from './presets.ts'
@@ -870,12 +870,13 @@ export class TuiApp {
   /**
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
    * Appearance reuses the theme picker; Models lists configurable providers
-   * and writes API keys, base URLs, and display names; Agent preset reuses
-   * `/preset` when `ctx.agentPresets` is mounted; Permission switches the preset through
-   * the mounted `ctx.get('permissionPresets')` service; Sections lists
-   * `ctx.settings.describe({ redactSecrets: true })` namespaces and field
-   * names; Settings file notices `ctx.settings.documentPath` when the
-   * provider stores one local file.
+   * and writes API keys, base URLs, and display names; Web search writes the
+   * DeepSeek search key and endpoint when that namespace is registered; Agent
+   * preset reuses `/preset` when `ctx.agentPresets` is mounted; Permission
+   * switches the preset through the mounted `ctx.get('permissionPresets')`
+   * service; Sections lists `ctx.settings.describe({ redactSecrets: true })`
+   * namespaces and field names; Settings file notices
+   * `ctx.settings.documentPath` when the provider stores one local file.
    * Escape or an external hide closes the hub without opening a sub-panel.
    */
   openSettingsPicker(): void {
@@ -883,7 +884,11 @@ export class TuiApp {
     if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
     const settings = this.ctx.get('settings')
     const documentPath = settings?.documentPath
+    const descriptors = typeof settings?.describe === 'function'
+      ? settings.describe({ redactSecrets: true })
+      : []
     const sections = typeof settings?.describe === 'function'
+    const webSearch = descriptors.some(descriptor => String(descriptor.ns) === WEB_SEARCH_SETTINGS_NS)
     const presets = this.ctx.get('agentPresets') !== undefined
     const picker = new OverlayPicker(
       'Settings',
@@ -891,6 +896,7 @@ export class TuiApp {
         ...documentPath === undefined ? {} : { documentPath },
         sections,
         presets,
+        webSearch,
       }),
       '↑/↓ · Enter open · Esc close',
       {
@@ -901,6 +907,7 @@ export class TuiApp {
           else if (item.value === 'preset') void this.openPresetPicker()
           else if (item.value === 'inventory') this.openInventoryPicker()
           else if (item.value === 'models') void this.openModelsPicker()
+          else if (item.value === 'web-search') void this.openWebSearchActions()
           else if (item.value === 'sections') this.openSettingsSectionsPicker()
           else if (item.value === 'file' && documentPath !== undefined) this.notice(`settings file ${documentPath}`)
         },
@@ -1160,6 +1167,131 @@ export class TuiApp {
     } finally {
       this.finishOverlayOperation(operation)
     }
+  }
+
+  /**
+   * Web search actions: Set / Clear API key and Set / Clear base URL for
+   * `web-search-deepseek`. The default key reference is `DEEPSEEK_API_KEY`.
+   */
+  private async openWebSearchActions(): Promise<void> {
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const credentials = this.ctx.get('credentials')
+      const ref = webSearchKeyRef(this.webSearchSection())
+      let canClear = false
+      if (credentials !== undefined) {
+        try {
+          const info = await credentials.describe(credentialRef(ref))
+          canClear = info.configured && info.writable
+        } catch {
+          // A describe failure leaves Clear hidden; Set still works.
+        }
+      }
+      const section = this.webSearchSection()
+      const canClearBaseUrl = section !== undefined && baseUrlOf(section, []) !== undefined
+      if (!this.canCommitOverlay(operation)) return
+      const picker = new OverlayPicker(
+        'Web search',
+        providerCredentialRows({
+          canClear,
+          canClearBaseUrl,
+          canSetDisplayName: false,
+          canClearDisplayName: false,
+          canLogin: false,
+        }),
+        '↑/↓ · Enter · Esc close',
+        {
+          onSelect: (item) => {
+            this.hideOverlay()
+            if (item.value === 'set-key') void this.promptWebSearchKey()
+            else if (item.value === 'clear-key') void this.clearWebSearchKey()
+            else if (item.value === 'set-url') void this.promptProviderBaseUrl(this.webSearchEntry())
+            else if (item.value === 'clear-url') void this.clearProviderBaseUrl(this.webSearchEntry())
+          },
+          onCancel: () => { this.hideOverlay() },
+        },
+      )
+      this.overlay = showPicker(operation.tui, picker)
+    } finally {
+      this.finishOverlayOperation(operation)
+    }
+  }
+
+  /**
+   * Prompt for the DeepSeek search API key and store it through credentials.
+   */
+  private async promptWebSearchKey(): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const form = new LoginTextForm('API key for Web search', 'paste key', true)
+    this.overlay = tui.showOverlay(form, { anchor: 'bottom-center', width: '90%', maxHeight: '40%' })
+    try {
+      const draft = await form.wait(this.abort.signal)
+      const refusal = apiKeyRefusal(draft)
+      if (refusal !== undefined) {
+        this.notice(refusal)
+        return
+      }
+      await this.storeWebSearchKey(draft.trim())
+      this.noticeProviderWrite('API key stored for Web search', WEB_SEARCH_SETTINGS_NS)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message !== LOGIN_CANCELLED) this.notice(message)
+    } finally {
+      this.hideOverlay()
+    }
+  }
+
+  /**
+   * Remove the stored DeepSeek search key.
+   */
+  private async clearWebSearchKey(): Promise<void> {
+    const credentials = this.ctx.get('credentials')
+    if (credentials === undefined) {
+      this.notice('credentials are not mounted')
+      return
+    }
+    try {
+      await credentials.unset(credentialRef(webSearchKeyRef(this.webSearchSection())))
+      this.noticeProviderWrite('API key cleared for Web search', WEB_SEARCH_SETTINGS_NS)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
+   * Store the DeepSeek search key under the section's `apiKeyEnv`, or
+   * `DEEPSEEK_API_KEY`. Does not invent a `WEB_SEARCH_DEEPSEEK_API_KEY` name.
+   * @param value - the trimmed key.
+   */
+  private async storeWebSearchKey(value: string): Promise<void> {
+    const credentials = this.ctx.get('credentials')
+    if (credentials === undefined) {
+      throw new Error('credentials are not mounted')
+    }
+    await credentials.set(credentialRef(webSearchKeyRef(this.webSearchSection())), value)
+  }
+
+  /**
+   * Section-root Models entry used to reuse the base-URL write path.
+   * @returns a provider row whose `settingsPath` is empty.
+   */
+  private webSearchEntry(): ModelsProviderEntry {
+    return {
+      provider: WEB_SEARCH_SETTINGS_NS,
+      displayName: 'Web search',
+      settingsNs: WEB_SEARCH_SETTINGS_NS,
+      settingsPath: [],
+    }
+  }
+
+  /**
+   * Resolved `web-search-deepseek` section, when settings is mounted.
+   * @returns the section object, or undefined.
+   */
+  private webSearchSection(): unknown {
+    return this.ctx.get('settings')?.get(settingsNamespace(WEB_SEARCH_SETTINGS_NS))
   }
 
   /**

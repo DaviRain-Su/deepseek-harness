@@ -32,3 +32,4 @@ Selecting a Models row opens Set API key, Clear API key when `describe()` report
 - [TUI login overlay](2026-08-14-tui-login-overlay.md) — subscription OAuth, still the Login row.
 - [TUI writable base URL](2026-08-14-tui-writable-base-url.md) — the endpoint write on the same picker.
 - [TUI writable display name](2026-08-14-tui-writable-display-name.md) — the label write on the same picker.
+- [TUI writable web search](2026-08-14-tui-writable-web-search.md) — the search-provider key and endpoint on the same hub.

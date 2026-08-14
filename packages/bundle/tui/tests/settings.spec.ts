@@ -23,6 +23,8 @@ import {
   settingsSectionFieldRows,
   settingsSectionFields,
   settingsSectionRows,
+  webSearchKeyRef,
+  WEB_SEARCH_DEFAULT_KEY_REF,
   type PermissionPresetSource,
   type PluginInventorySource,
   type SettingsOverlayHandle,
@@ -68,6 +70,8 @@ function fakeSession(): Session {
 describe('settingsHubRows', () => {
   it('lists the shipped panels and appends Agent preset, Sections, and Settings file when those seams exist', () => {
     expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'models', 'permission', 'inventory'])
+    expect(settingsHubRows({ webSearch: true }).map(row => row.value))
+      .toEqual(['theme', 'models', 'web-search', 'permission', 'inventory'])
     expect(settingsHubRows({ presets: true }).map(row => row.value))
       .toEqual(['theme', 'models', 'permission', 'preset', 'inventory'])
     expect(settingsHubRows({ sections: true }).map(row => row.value))
@@ -182,6 +186,14 @@ describe('apiKeyEnvOf', () => {
       .toBe('XAI_API_KEY')
     expect(apiKeyEnvOf({ apiKeyEnv: 'DEEPSEEK_API_KEY' }, [])).toBe('DEEPSEEK_API_KEY')
     expect(apiKeyEnvOf({}, ['providers', 'xai'])).toBeUndefined()
+  })
+})
+
+describe('webSearchKeyRef', () => {
+  it('uses the section apiKeyEnv and otherwise the DeepSeek default', () => {
+    expect(webSearchKeyRef({ apiKeyEnv: 'SEARCH_KEY' })).toBe('SEARCH_KEY')
+    expect(webSearchKeyRef({})).toBe(WEB_SEARCH_DEFAULT_KEY_REF)
+    expect(webSearchKeyRef(undefined)).toBe(WEB_SEARCH_DEFAULT_KEY_REF)
   })
 })
 

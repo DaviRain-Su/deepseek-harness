@@ -32,3 +32,4 @@ Status: implemented
 - [TUI 登录 overlay](2026-08-14-tui-login-overlay.md) — 订阅 OAuth，仍是 Login 行。
 - [TUI 可写 base URL](2026-08-14-tui-writable-base-url.md) — 同一 picker 上的端点写入。
 - [TUI 可写 display name](2026-08-14-tui-writable-display-name.md) — 同一 picker 上的标签写入。
+- [TUI 可写 web search](2026-08-14-tui-writable-web-search.md) — 同一 hub 上的搜索提供方密钥和端点。
