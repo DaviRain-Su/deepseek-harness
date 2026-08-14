@@ -10,7 +10,7 @@ The [writable Models](2026-08-14-tui-writable-models.md) picker stored a key and
 
 ## Decision
 
-Set display name appears when `settingsPath` is non-empty — a nested provider profile, which is where `llm-pi-ai` stores `displayName`. Clear display name appears when `displayNameOf` finds a stored value. Set reuses `LoginTextForm` (not secret). A blank draft refuses; `llm-pi-ai` rejects an empty `displayName`, and the TUI does not invent a format rule. Set writes `{ op: 'set', path: [...settingsPath, 'displayName'] }`; Clear writes `unset` so the route id wins again. A section-root profile such as DeepSeek official has no `displayName` field, so those rows stay hidden. Model lists and `api` / protocol stay off this path.
+Set display name appears when `settingsPath` is non-empty — a nested provider profile, which is where `llm-pi-ai` stores `displayName`. Clear display name appears when `displayNameOf` finds a stored value. Set reuses `LoginTextForm` (not secret). A blank draft refuses; `llm-pi-ai` rejects an empty `displayName`, and the TUI does not invent a format rule. Set writes `{ op: 'set', path: [...settingsPath, 'displayName'] }`; Clear writes `unset` so the route id wins again. A successful write notices ` · restart` when `describe()` says that namespace applies after reload. A section-root profile such as DeepSeek official has no `displayName` field, so those rows stay hidden. Model lists and `api` / protocol stay off this path.
 
 ## Alternatives considered
 

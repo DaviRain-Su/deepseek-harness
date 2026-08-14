@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-tui-writable-base-url.md
-2026-08-14-tui-writable-base-url.md: 27771d52e34c4c0e59b5303a82d3a655abca2697
-2026-08-14-tui-writable-base-url.zh.md: 3f6cb59713f9cbf2c141b527c3b17a27def228b1
+2026-08-14-tui-writable-base-url.md: 5a481bbeee81a597def06f59f0dc9f563352fe64
+2026-08-14-tui-writable-base-url.zh.md: c758d2dfeb7a87b0e44f2855cce5a5e5a43dca0c

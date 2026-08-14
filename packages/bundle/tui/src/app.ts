@@ -1179,7 +1179,7 @@ export class TuiApp {
         return
       }
       await this.storeProviderKey(provider, draft.trim())
-      this.notice(`API key stored for ${provider.displayName}`)
+      this.noticeProviderWrite(`API key stored for ${provider.displayName}`, provider.settingsNs)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
       if (message !== LOGIN_CANCELLED) this.notice(message)
@@ -1205,7 +1205,7 @@ export class TuiApp {
     }
     try {
       await credentials.unset(credentialRef(ref))
-      this.notice(`API key cleared for ${provider.displayName}`)
+      this.noticeProviderWrite(`API key cleared for ${provider.displayName}`, provider.settingsNs)
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error))
     }
@@ -1228,7 +1228,7 @@ export class TuiApp {
         return
       }
       await this.storeProviderBaseUrl(provider, draft.trim())
-      this.notice(`base URL stored for ${provider.displayName}`)
+      this.noticeProviderWrite(`base URL stored for ${provider.displayName}`, provider.settingsNs)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
       if (message !== LOGIN_CANCELLED) this.notice(message)
@@ -1251,7 +1251,7 @@ export class TuiApp {
       await settings.mutate(settingsNamespace(provider.settingsNs), [
         { op: 'unset', path: [...provider.settingsPath ?? [], 'baseURL'] },
       ])
-      this.notice(`base URL cleared for ${provider.displayName}`)
+      this.noticeProviderWrite(`base URL cleared for ${provider.displayName}`, provider.settingsNs)
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error))
     }
@@ -1274,7 +1274,7 @@ export class TuiApp {
         return
       }
       await this.storeProviderDisplayName(provider, draft.trim())
-      this.notice(`display name stored for ${provider.provider}`)
+      this.noticeProviderWrite(`display name stored for ${provider.provider}`, provider.settingsNs)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
       if (message !== LOGIN_CANCELLED) this.notice(message)
@@ -1297,7 +1297,7 @@ export class TuiApp {
       await settings.mutate(settingsNamespace(provider.settingsNs), [
         { op: 'unset', path: [...provider.settingsPath ?? [], 'displayName'] },
       ])
-      this.notice(`display name cleared for ${provider.provider}`)
+      this.noticeProviderWrite(`display name cleared for ${provider.provider}`, provider.settingsNs)
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error))
     }
@@ -1316,6 +1316,20 @@ export class TuiApp {
     await settings.mutate(settingsNamespace(provider.settingsNs), [
       { op: 'set', path: [...provider.settingsPath ?? [], 'displayName'], value },
     ])
+  }
+
+  /**
+   * Notice a Models write. Appends ` · restart` when that namespace applies
+   * only after reload.
+   * @param message - the stored or cleared line.
+   * @param ns - {@link ModelsProviderEntry.settingsNs}.
+   */
+  private noticeProviderWrite(message: string, ns: string): void {
+    const settings = this.ctx.get('settings')
+    const applies = settings !== undefined && typeof settings.describe === 'function'
+      ? settings.describe({ redactSecrets: true }).find(descriptor => String(descriptor.ns) === ns)?.applies
+      : undefined
+    this.notice(applies === 'restart' ? `${message} · restart` : message)
   }
 
   /**

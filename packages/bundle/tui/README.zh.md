@@ -19,7 +19,7 @@ Loader 结算后，runtime 读取共享的 [`ctx.agentDefaultModel`](../../core/
 - **不监视主题文件**：打开 `/theme` 时会再读一遍 `$DSH_HOME/themes`；正在使用的 JSON 被改掉不会实时重载。没有 OSC 11 自动深/浅色，也不附带 oh-my-pi 那套默认主题包。
 - **`/sessions` 不改进程 cwd**：picker 列出各已记录 cwd 的顶层会话（本进程 cwd 在前）；切换是进程内 resume，和 `--resume <id>` 一样，工具仍在启动时的工作目录里跑。
 - **状态 chip 与 `/jobs` 只做可见性**：缺少 `plan` / `goal` / `todos` 投影或 `ctx.jobs` 时省略对应 chip；`/jobs` 提示状态和详情，不取消任务。
-- **Models 设置只写密钥、base URL 和 display name，不编辑完整 profile**：`/settings` → Models 经 `ctx.credentials` 存 API key，经 `ctx.settings.mutate` 存 `baseURL`；嵌套提供方 profile 还可存 `displayName`。不改模型列表、协议，也不手改 `settings.yaml`。Sections 列出已注册命名空间和字段名，不打开按 schema 驱动的编辑器，也不显示字段值。Settings file 只提示本地路径，不打开编辑器。订阅 OAuth 仍走 `/login`。
+- **Models 设置只写密钥、base URL 和 display name，不编辑完整 profile**：`/settings` → Models 经 `ctx.credentials` 存 API key，经 `ctx.settings.mutate` 存 `baseURL`；嵌套提供方 profile 还可存 `displayName`。写入成功时，若该命名空间要重启才生效，提示会加上 ` · restart`。不改模型列表、协议，也不手改 `settings.yaml`。Sections 列出已注册命名空间和字段名，不打开按 schema 驱动的编辑器，也不显示字段值。Settings file 只提示本地路径，不打开编辑器。订阅 OAuth 仍走 `/login`。
 - **没有语言切换**：Web 的 `dsh-client-locale` 是浏览器插件；TUI 文案保持英文。
 - **没有 Trajectory 表**：transcript 就是对话，没有第二份结构化日志视图。
 - **编辑器只接受文本**：transcript 里的图片内容块已画成 `[image]`；编辑器不能附加文件。

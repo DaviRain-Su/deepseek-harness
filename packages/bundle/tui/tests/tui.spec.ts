@@ -538,6 +538,7 @@ describe('tui runtime', () => {
     const { app, code } = await test.run()
     test.ctx.provide('settings', {
       get: () => ({}),
+      describe: () => [{ ns: 'llm-pi-ai', applies: 'restart' }],
       mutate: (_ns: string, ops: ReadonlyArray<{ op: string; path: readonly string[]; value?: unknown }>) => {
         mutate.push(...ops)
         return Promise.resolve()
@@ -557,7 +558,7 @@ describe('tui runtime', () => {
       settingsPath: ['providers', 'xai'],
     })
     expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['providers', 'xai', 'baseURL'] })
-    expect(app['transcript'].container.render(80).join('\n')).toContain('base URL cleared for xAI')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('base URL cleared for xAI · restart')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()

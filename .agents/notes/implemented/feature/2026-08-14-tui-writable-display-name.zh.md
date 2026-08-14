@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`settingsPath` 非空时出现 Set display name——嵌套提供方 profile，也就是 `llm-pi-ai` 存放 `displayName` 的位置。`displayNameOf` 找到已存值时出现 Clear display name。Set 复用 `LoginTextForm`（非密文）。空白草稿拒绝；`llm-pi-ai` 拒绝空的 `displayName`，TUI 不发明格式规则。Set 写入 `{ op: 'set', path: [...settingsPath, 'displayName'] }`；Clear 对该路径 `unset`，让路由 id 重新生效。DeepSeek 官方这类分节根 profile 没有 `displayName` 字段，因此不出现这两行。模型列表和 `api` / 协议仍不走这条路径。
+`settingsPath` 非空时出现 Set display name——嵌套提供方 profile，也就是 `llm-pi-ai` 存放 `displayName` 的位置。`displayNameOf` 找到已存值时出现 Clear display name。Set 复用 `LoginTextForm`（非密文）。空白草稿拒绝；`llm-pi-ai` 拒绝空的 `displayName`，TUI 不发明格式规则。Set 写入 `{ op: 'set', path: [...settingsPath, 'displayName'] }`；Clear 对该路径 `unset`，让路由 id 重新生效。写入成功时，若 `describe()` 标明该命名空间要重启才生效，提示会加上 ` · restart`。DeepSeek 官方这类分节根 profile 没有 `displayName` 字段，因此不出现这两行。模型列表和 `api` / 协议仍不走这条路径。
 
 ## 考虑过的替代方案
 

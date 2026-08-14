@@ -10,7 +10,7 @@ The [writable Models](2026-08-14-tui-writable-models.md) picker stored an API ke
 
 ## Decision
 
-The per-provider picker always offers Set base URL. Clear base URL appears when `baseUrlOf` finds a stored value. Set reuses `LoginTextForm` (not secret). A blank draft refuses; the settings schema is a plain string, so the TUI does not invent a URL-format rule. Set writes `{ op: 'set', path: [...settingsPath, 'baseURL'] }`; Clear writes `unset` on that path so the catalog endpoint wins again. Model lists and `api` / protocol stay off this path.
+The per-provider picker always offers Set base URL. Clear base URL appears when `baseUrlOf` finds a stored value. Set reuses `LoginTextForm` (not secret). A blank draft refuses; the settings schema is a plain string, so the TUI does not invent a URL-format rule. Set writes `{ op: 'set', path: [...settingsPath, 'baseURL'] }`; Clear writes `unset` on that path so the catalog endpoint wins again. A successful write notices ` · restart` when `describe()` says that namespace applies after reload. Model lists and `api` / protocol stay off this path.
 
 ## Alternatives considered
 
@@ -24,7 +24,7 @@ The per-provider picker always offers Set base URL. Clear base URL appears when 
 
 ## Testing
 
-`tests/settings.spec.ts` pins `baseUrlOf`, `baseUrlRefusal`, and the extra picker rows. `tests/tui.spec.ts` under `pnpm run test:tui` sets and unsets through stub `settings.mutate`. There is still no keyless assembled TUI snapshot.
+`tests/settings.spec.ts` pins `baseUrlOf`, `baseUrlRefusal`, and the extra picker rows. `tests/tui.spec.ts` under `pnpm run test:tui` sets and unsets through stub `settings.mutate` and notices ` · restart` when `describe()` reports `applies: 'restart'`. There is still no keyless assembled TUI snapshot.
 
 ## Related
 

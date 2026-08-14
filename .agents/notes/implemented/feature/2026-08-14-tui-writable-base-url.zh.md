@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-每个提供方 picker 始终提供 Set base URL。`baseUrlOf` 找到已存值时出现 Clear base URL。Set 复用 `LoginTextForm`（非密文）。空白草稿拒绝；settings schema 是普通字符串，TUI 不发明 URL 格式规则。Set 写入 `{ op: 'set', path: [...settingsPath, 'baseURL'] }`；Clear 对该路径 `unset`，让 catalog 端点重新生效。模型列表和 `api` / 协议仍不走这条路径。
+每个提供方 picker 始终提供 Set base URL。`baseUrlOf` 找到已存值时出现 Clear base URL。Set 复用 `LoginTextForm`（非密文）。空白草稿拒绝；settings schema 是普通字符串，TUI 不发明 URL 格式规则。Set 写入 `{ op: 'set', path: [...settingsPath, 'baseURL'] }`；Clear 对该路径 `unset`，让 catalog 端点重新生效。写入成功时，若 `describe()` 标明该命名空间要重启才生效，提示会加上 ` · restart`。模型列表和 `api` / 协议仍不走这条路径。
 
 ## 考虑过的替代方案
 
@@ -24,7 +24,7 @@ Status: implemented
 
 ## 测试
 
-`tests/settings.spec.ts` 钉住 `baseUrlOf`、`baseUrlRefusal` 和额外的 picker 行。`tests/tui.spec.ts` 在 `pnpm run test:tui` 下经桩 `settings.mutate` 设置与取消。仍没有无密钥的组装 TUI 快照。
+`tests/settings.spec.ts` 钉住 `baseUrlOf`、`baseUrlRefusal` 和额外的 picker 行。`tests/tui.spec.ts` 在 `pnpm run test:tui` 下经桩 `settings.mutate` 设置与取消，并在 `describe()` 报告 `applies: 'restart'` 时提示 ` · restart`。仍没有无密钥的组装 TUI 快照。
 
 ## 相关
 
