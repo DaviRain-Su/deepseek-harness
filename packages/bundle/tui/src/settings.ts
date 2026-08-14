@@ -3,7 +3,7 @@
  * whose rows are sub-panels; `app.ts` dispatches a confirmed row. Permission
  * reads the mounted `PermissionPresetService` and writes through `set`.
  * Models lists configurable providers and offers Set / Clear API key, Set /
- * Clear base URL, plus Login; Inventory is a read-only roster.
+ * Clear base URL, plus Login; Inventory and Sections are read-only rosters.
  * @module @deepseek-ai/dsh-tui/settings
  */
 
@@ -29,26 +29,71 @@ export interface PermissionPresetSource {
   set(session: Session, name: string): void
 }
 
+/** Optional rows the `/settings` hub appends after the shipped panels. */
+export interface SettingsHubOptions {
+  /** `ctx.settings.documentPath` when the provider stores one local file. */
+  documentPath?: string
+  /** Process home used to render `~/…`; defaults to `HOME` / `USERPROFILE`. */
+  home?: string
+  /** True when `ctx.settings.describe` is available. */
+  sections?: boolean
+}
+
 /** Hub rows for the /settings panels.
- * @param documentPath - `ctx.settings.documentPath` when the provider stores
- *   one local file; omitted for non-file providers so the File row stays hidden.
- * @param home - process home used to render `~/…`; defaults to `HOME` / `USERPROFILE`.
- * @returns Appearance, Models, Permission, Inventory, and Settings file when a path exists.
+ * @param options - Settings file and Sections rows when those seams exist.
+ * @returns Appearance, Models, Permission, Inventory, then Sections and Settings file when present.
  */
-export function settingsHubRows(documentPath?: string, home?: string): SelectItem[] {
+export function settingsHubRows(options: SettingsHubOptions = {}): SelectItem[] {
   return [
     { value: 'theme', label: 'Appearance', description: 'Terminal theme' },
     { value: 'models', label: 'Models', description: 'Configurable LLM providers' },
     { value: 'permission', label: 'Permission', description: 'Sandbox mode + approval policy preset' },
     { value: 'inventory', label: 'Inventory', description: 'Loaded plugins' },
-    ...documentPath === undefined || documentPath.length === 0
+    ...options.sections === true
+      ? [{ value: 'sections', label: 'Sections', description: 'Registered settings namespaces' }]
+      : [],
+    ...options.documentPath === undefined || options.documentPath.length === 0
       ? []
       : [{
         value: 'file',
         label: 'Settings file',
-        description: formatCwdForFooter(documentPath, home ?? homeDir()),
+        description: formatCwdForFooter(options.documentPath, options.home ?? homeDir()),
       }],
   ]
+}
+
+/** One registered settings namespace, as a configuration surface reads it. */
+export interface SettingsSectionEntry {
+  /** Registered namespace id. */
+  readonly ns: string
+  /** Owner-declared effect timing (`live` or `restart`). */
+  readonly applies: string
+  /** True when a well-formed user layer exists for this namespace. */
+  readonly overridden: boolean
+}
+
+/** The settings-describe surface; `ctx.settings` satisfies this structurally. */
+export interface SettingsSectionSource {
+  /** Registered namespaces in registration order. */
+  sections(): Iterable<SettingsSectionEntry>
+}
+
+/**
+ * Sections panel rows: one per registered namespace, in registration order.
+ * Description is `applies` plus `overridden` when a user layer exists.
+ * @param source - the settings service or a structural stand-in.
+ * @returns one row per registered namespace.
+ */
+export function settingsSectionRows(source: SettingsSectionSource): SelectItem[] {
+  const rows: SelectItem[] = []
+  for (const section of source.sections()) {
+    rows.push({
+      value: section.ns,
+      label: section.ns,
+      description: section.overridden ? `${section.applies} · overridden` : section.applies,
+    })
+  }
+  return rows
 }
 
 /** One loaded plugin entry, as a configuration surface reads it. */

@@ -17,6 +17,7 @@ import {
   promptPermissionPreset,
   providerCredentialRows,
   settingsHubRows,
+  settingsSectionRows,
   type PermissionPresetSource,
   type PluginInventorySource,
   type SettingsOverlayHandle,
@@ -60,13 +61,33 @@ function fakeSession(): Session {
 }
 
 describe('settingsHubRows', () => {
-  it('lists the shipped panels and appends Settings file when a path exists', () => {
+  it('lists the shipped panels and appends Sections and Settings file when those seams exist', () => {
     expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'models', 'permission', 'inventory'])
-    expect(settingsHubRows('/tmp/dsh/settings.yaml', '/tmp').at(-1)).toEqual({
+    expect(settingsHubRows({ sections: true }).map(row => row.value))
+      .toEqual(['theme', 'models', 'permission', 'inventory', 'sections'])
+    expect(settingsHubRows({ documentPath: '/tmp/dsh/settings.yaml', home: '/tmp' }).at(-1)).toEqual({
       value: 'file',
       label: 'Settings file',
       description: '~/dsh/settings.yaml',
     })
+  })
+})
+
+describe('settingsSectionRows', () => {
+  it('maps each registered namespace in order and marks a user layer', () => {
+    const rows = settingsSectionRows({
+      sections: () => [
+        { ns: 'tui-theme', applies: 'live', overridden: true },
+        { ns: 'llm-pi-ai', applies: 'restart', overridden: false },
+      ],
+    })
+    expect(rows.map(row => row.value)).toEqual(['tui-theme', 'llm-pi-ai'])
+    expect(rows[0]).toEqual({ value: 'tui-theme', label: 'tui-theme', description: 'live · overridden' })
+    expect(rows[1]).toEqual({ value: 'llm-pi-ai', label: 'llm-pi-ai', description: 'restart' })
+  })
+
+  it('returns an empty list when nothing is registered', () => {
+    expect(settingsSectionRows({ sections: () => [] })).toEqual([])
   })
 })
 

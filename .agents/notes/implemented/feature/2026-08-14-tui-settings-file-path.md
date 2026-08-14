@@ -32,3 +32,4 @@ The hub names the local settings file when one exists. Models still does not edi
 
 - [TUI settings Models panel](2026-08-14-tui-settings-models-panel.md) — the hub this row joins.
 - [TUI writable Models](2026-08-14-tui-writable-models.md) — credential writes that land in this file's references.
+- [TUI settings sections](2026-08-14-tui-settings-sections.md) — the other settings-hub roster.

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-tui-settings-file-path.md
-2026-08-14-tui-settings-file-path.md: 65f3a25e4f7fdd80e2244155601841475f6ce08c
-2026-08-14-tui-settings-file-path.zh.md: 485c49e79aa4edd4b26e674d61e899bf80bfd0fc
+2026-08-14-tui-settings-file-path.md: d3bb47628327b0d42e04477c06fa83e1a02dcbe1
+2026-08-14-tui-settings-file-path.zh.md: 3ec41bab263793945008a48739413660b68bbf66

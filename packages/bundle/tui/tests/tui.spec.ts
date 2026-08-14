@@ -605,6 +605,47 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('notices a registered settings section from the hub', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      describe: () => [
+        { ns: 'tui-theme', applies: 'live', user: { theme: 'dark' } },
+        { ns: 'llm-pi-ai', applies: 'restart' },
+      ],
+    } as never)
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('settings tui-theme · live · overridden')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices when settings describe reports no sections', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', { describe: () => [] } as never)
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('no settings sections')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('opens the /settings Inventory panel over the loader entries', async () => {
     const test = await bench()
     test.ctx.provide('loader', {

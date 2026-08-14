@@ -20,7 +20,7 @@ Web's Models page lists configurable LLM providers. The TUI already has `/login`
 
 ## Consequences
 
-`/settings` lists Appearance, Models, Permission, Inventory, and Settings file when `documentPath` is set ([TUI settings file path](2026-08-14-tui-settings-file-path.md)). Models is the roster; credential writes live on the later note.
+`/settings` lists Appearance, Models, Permission, Inventory, Sections when `describe` is available ([TUI settings sections](2026-08-14-tui-settings-sections.md)), and Settings file when `documentPath` is set ([TUI settings file path](2026-08-14-tui-settings-file-path.md)). Models is the roster; credential writes live on the later note.
 
 ## Testing
 
@@ -33,3 +33,4 @@ Web's Models page lists configurable LLM providers. The TUI already has `/login`
 - [TUI live model catalog](2026-08-14-tui-live-model-catalog.md) — `/model` lists live routes, not this directory.
 - [TUI session status chips](2026-08-14-tui-session-status-chips.md) — the other TUI chrome slice in this change.
 - [TUI settings file path](2026-08-14-tui-settings-file-path.md) — the hub row that names the local document.
+- [TUI settings sections](2026-08-14-tui-settings-sections.md) — the read-only `describe()` roster.

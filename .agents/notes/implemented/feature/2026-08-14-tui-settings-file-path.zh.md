@@ -32,3 +32,4 @@ Web 可以打开用户可编辑的 settings 文档。TUI 的 `/settings` hub 能
 
 - [TUI settings Models 面板](2026-08-14-tui-settings-models-panel.md) — 本行加入的 hub。
 - [TUI 可写 Models](2026-08-14-tui-writable-models.md) — 落入该文件引用的凭据写入。
+- [TUI settings 分节](2026-08-14-tui-settings-sections.md) — hub 上的另一份名册。

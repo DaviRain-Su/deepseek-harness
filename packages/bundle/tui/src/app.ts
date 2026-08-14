@@ -42,7 +42,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, type PluginInventoryEntry, type ModelsProviderEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
 import { presetPickerItem, sessionBlank } from './presets.ts'
@@ -852,18 +852,21 @@ export class TuiApp {
   /**
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
    * Appearance reuses the theme picker; Models lists configurable providers
-   * and writes API keys; Permission switches the preset through the mounted
-   * `ctx.get('permissionPresets')` service; Settings file notices
+   * and writes API keys and base URLs; Permission switches the preset through
+   * the mounted `ctx.get('permissionPresets')` service; Sections lists
+   * `ctx.settings.describe()` read-only; Settings file notices
    * `ctx.settings.documentPath` when the provider stores one local file.
    * Escape or an external hide closes the hub without opening a sub-panel.
    */
   openSettingsPicker(): void {
     const tui = this.tui
     if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
-    const documentPath = this.ctx.get('settings')?.documentPath
+    const settings = this.ctx.get('settings')
+    const documentPath = settings?.documentPath
+    const sections = typeof settings?.describe === 'function'
     const picker = new OverlayPicker(
       'Settings',
-      settingsHubRows(documentPath),
+      settingsHubRows({ documentPath, sections }),
       '↑/↓ · Enter open · Esc close',
       {
         onSelect: (item) => {
@@ -872,6 +875,7 @@ export class TuiApp {
           else if (item.value === 'permission') this.openPermissionPresetPicker()
           else if (item.value === 'inventory') this.openInventoryPicker()
           else if (item.value === 'models') this.openModelsPicker()
+          else if (item.value === 'sections') this.openSettingsSectionsPicker()
           else if (item.value === 'file' && documentPath !== undefined) this.notice(`settings file ${documentPath}`)
         },
         onCancel: () => { this.hideOverlay() },
@@ -926,6 +930,50 @@ export class TuiApp {
       onSelect: () => { this.hideOverlay() },
       onCancel: () => { this.hideOverlay() },
     })
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Sections sub-panel: a read-only view of `ctx.settings.describe()`.
+   * Selecting a row notices the namespace and whether a user layer exists;
+   * it does not open a schema-driven editor.
+   */
+  private openSettingsSectionsPicker(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const settings = this.ctx.get('settings')
+    if (settings === undefined || typeof settings.describe !== 'function') {
+      this.notice('settings are not mounted')
+      return
+    }
+    const entries: SettingsSectionEntry[] = []
+    for (const descriptor of settings.describe()) {
+      entries.push({
+        ns: String(descriptor.ns),
+        applies: descriptor.applies,
+        overridden: descriptor.user !== undefined,
+      })
+    }
+    if (entries.length === 0) {
+      this.notice('no settings sections')
+      return
+    }
+    const picker = new OverlayPicker(
+      'Sections',
+      settingsSectionRows({ sections: () => entries }),
+      'Registered namespaces · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          const selected = entries.find(entry => entry.ns === item.value)
+          if (selected === undefined) return
+          this.notice(selected.overridden
+            ? `settings ${selected.ns} · ${selected.applies} · overridden`
+            : `settings ${selected.ns} · ${selected.applies}`)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
     this.overlay = showPicker(tui, picker)
   }
 
