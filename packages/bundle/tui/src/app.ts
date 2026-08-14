@@ -42,7 +42,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, type PluginInventoryEntry, type ModelsProviderEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, type PluginInventoryEntry, type ModelsProviderEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
 import { presetPickerItem, sessionBlank } from './presets.ts'
@@ -932,8 +932,8 @@ export class TuiApp {
   /**
    * Models sub-panel: configurable LLM providers from
    * `ctx.get('llm').listConfigurableProviders()`. Selecting a row opens
-   * Set / Clear API key and Login; writes go through `ctx.credentials` and
-   * `ctx.settings.mutate`.
+   * Set / Clear API key, Set / Clear base URL, and Login; writes go through
+   * `ctx.credentials` and `ctx.settings.mutate`.
    */
   private openModelsPicker(): void {
     const tui = this.tui
@@ -968,7 +968,8 @@ export class TuiApp {
   }
 
   /**
-   * Overlay of Set / Clear API key and Login for one configurable provider.
+   * Overlay of Set / Clear API key, Set / Clear base URL, and Login for one
+   * configurable provider.
    * @param provider - the roster row that was confirmed.
    */
   private async openProviderActions(provider: ModelsProviderEntry): Promise<void> {
@@ -986,18 +987,23 @@ export class TuiApp {
           // A describe failure leaves Clear hidden; Set and Login still work.
         }
       }
+      const settings = this.ctx.get('settings')
+      const canClearBaseUrl = settings !== undefined
+        && baseUrlOf(settings.get(settingsNamespace(provider.settingsNs)), provider.settingsPath ?? []) !== undefined
       const canLogin = this.ctx.get('llmOAuth')?.loginableProviders()
         .some(candidate => candidate.id === provider.provider) ?? false
       if (!this.canCommitOverlay(operation)) return
       const picker = new OverlayPicker(
         provider.displayName,
-        providerCredentialRows({ canClear, canLogin }),
+        providerCredentialRows({ canClear, canClearBaseUrl, canLogin }),
         '↑/↓ · Enter · Esc close',
         {
           onSelect: (item) => {
             this.hideOverlay()
             if (item.value === 'set-key') void this.promptProviderKey(provider)
             else if (item.value === 'clear-key') void this.clearProviderKey(provider)
+            else if (item.value === 'set-url') void this.promptProviderBaseUrl(provider)
+            else if (item.value === 'clear-url') void this.clearProviderBaseUrl(provider)
             else if (item.value === 'login') void this.startLogin(provider.provider)
           },
           onCancel: () => { this.hideOverlay() },
@@ -1056,6 +1062,67 @@ export class TuiApp {
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  /**
+   * Prompt for a base URL and store it through `ctx.settings.mutate`.
+   * @param provider - the roster row being edited.
+   */
+  private async promptProviderBaseUrl(provider: ModelsProviderEntry): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const form = new LoginTextForm(`Base URL for ${provider.displayName}`, 'https://…', false)
+    this.overlay = tui.showOverlay(form, { anchor: 'bottom-center', width: '90%', maxHeight: '40%' })
+    try {
+      const draft = await form.wait(this.abort.signal)
+      const refusal = baseUrlRefusal(draft)
+      if (refusal !== undefined) {
+        this.notice(refusal)
+        return
+      }
+      await this.storeProviderBaseUrl(provider, draft.trim())
+      this.notice(`base URL stored for ${provider.displayName}`)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message !== LOGIN_CANCELLED) this.notice(message)
+    } finally {
+      this.hideOverlay()
+    }
+  }
+
+  /**
+   * Remove the stored `baseURL` so the catalog endpoint wins again.
+   * @param provider - the roster row being cleared.
+   */
+  private async clearProviderBaseUrl(provider: ModelsProviderEntry): Promise<void> {
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) {
+      this.notice('settings are not mounted')
+      return
+    }
+    try {
+      await settings.mutate(settingsNamespace(provider.settingsNs), [
+        { op: 'unset', path: [...provider.settingsPath ?? [], 'baseURL'] },
+      ])
+      this.notice(`base URL cleared for ${provider.displayName}`)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
+   * Write `baseURL` on the stored profile.
+   * @param provider - the roster row being edited.
+   * @param value - the trimmed endpoint.
+   */
+  private async storeProviderBaseUrl(provider: ModelsProviderEntry, value: string): Promise<void> {
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) {
+      throw new Error('settings are not mounted')
+    }
+    await settings.mutate(settingsNamespace(provider.settingsNs), [
+      { op: 'set', path: [...provider.settingsPath ?? [], 'baseURL'], value },
+    ])
   }
 
   /**

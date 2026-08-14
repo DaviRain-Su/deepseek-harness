@@ -8,6 +8,8 @@ import { OverlayPicker } from '../src/picker.ts'
 import {
   apiKeyEnvOf,
   apiKeyRefusal,
+  baseUrlOf,
+  baseUrlRefusal,
   deriveKeyRef,
   inventoryRows,
   modelsRows,
@@ -109,12 +111,28 @@ describe('apiKeyEnvOf', () => {
   })
 })
 
+describe('baseUrlOf', () => {
+  it('walks the settings path to the named endpoint', () => {
+    expect(baseUrlOf({ providers: { xai: { baseURL: 'https://api.x.ai/v1' } } }, ['providers', 'xai']))
+      .toBe('https://api.x.ai/v1')
+    expect(baseUrlOf({ baseURL: 'https://api.deepseek.com' }, [])).toBe('https://api.deepseek.com')
+    expect(baseUrlOf({}, ['providers', 'xai'])).toBeUndefined()
+  })
+})
+
+describe('baseUrlRefusal', () => {
+  it('refuses a blank URL and accepts any non-empty string', () => {
+    expect(baseUrlRefusal('  ')).toBe('base URL is blank')
+    expect(baseUrlRefusal('https://proxy.example/v1')).toBeUndefined()
+  })
+})
+
 describe('providerCredentialRows', () => {
-  it('always offers Set API key and appends Clear and Login when available', () => {
-    expect(providerCredentialRows({ canClear: false, canLogin: false }).map(row => row.value))
-      .toEqual(['set-key'])
-    expect(providerCredentialRows({ canClear: true, canLogin: true }).map(row => row.value))
-      .toEqual(['set-key', 'clear-key', 'login'])
+  it('always offers Set API key and Set base URL, and appends Clear and Login when available', () => {
+    expect(providerCredentialRows({ canClear: false, canClearBaseUrl: false, canLogin: false }).map(row => row.value))
+      .toEqual(['set-key', 'set-url'])
+    expect(providerCredentialRows({ canClear: true, canClearBaseUrl: true, canLogin: true }).map(row => row.value))
+      .toEqual(['set-key', 'clear-key', 'set-url', 'clear-url', 'login'])
   })
 })
 

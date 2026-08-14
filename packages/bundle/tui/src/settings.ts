@@ -2,8 +2,8 @@
  * `/settings` overlay hub and its sub-panels. The hub is an `OverlayPicker`
  * whose rows are sub-panels; `app.ts` dispatches a confirmed row. Permission
  * reads the mounted `PermissionPresetService` and writes through `set`.
- * Models lists configurable providers and offers Set / Clear API key plus
- * Login; Inventory is a read-only roster.
+ * Models lists configurable providers and offers Set / Clear API key, Set /
+ * Clear base URL, plus Login; Inventory is a read-only roster.
  * @module @deepseek-ai/dsh-tui/settings
  */
 
@@ -151,33 +151,68 @@ export function apiKeyRefusal(draft: string): string | undefined {
 }
 
 /**
- * The `apiKeyEnv` a stored profile already names.
+ * A string field on the stored profile at `path`.
  * @param section - the namespace's resolved section, or undefined when unset.
  * @param path - {@link ModelsProviderEntry.settingsPath}.
- * @returns the reference, or undefined when the profile names none.
+ * @param field - the profile key (`apiKeyEnv`, `baseURL`).
+ * @returns the non-empty string, or undefined when absent.
  */
-export function apiKeyEnvOf(section: unknown, path: readonly string[]): string | undefined {
+function profileStringOf(section: unknown, path: readonly string[], field: string): string | undefined {
   let current: unknown = section
   for (const key of path) {
     if (typeof current !== 'object' || current === null) return undefined
     current = (current as Record<string, unknown>)[key]
   }
   if (typeof current !== 'object' || current === null) return undefined
-  const ref = (current as { apiKeyEnv?: unknown }).apiKeyEnv
-  return typeof ref === 'string' && ref.length > 0 ? ref : undefined
+  const value = (current as Record<string, unknown>)[field]
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+/**
+ * The `apiKeyEnv` a stored profile already names.
+ * @param section - the namespace's resolved section, or undefined when unset.
+ * @param path - {@link ModelsProviderEntry.settingsPath}.
+ * @returns the reference, or undefined when the profile names none.
+ */
+export function apiKeyEnvOf(section: unknown, path: readonly string[]): string | undefined {
+  return profileStringOf(section, path, 'apiKeyEnv')
+}
+
+/**
+ * The `baseURL` a stored profile already names.
+ * @param section - the namespace's resolved section, or undefined when unset.
+ * @param path - {@link ModelsProviderEntry.settingsPath}.
+ * @returns the endpoint, or undefined when the profile names none.
+ */
+export function baseUrlOf(section: unknown, path: readonly string[]): string | undefined {
+  return profileStringOf(section, path, 'baseURL')
+}
+
+/**
+ * Why a typed base URL cannot be stored. An empty field is not a failure —
+ * Escape cancels instead. Whitespace-only refuses; the settings schema is a
+ * plain string, so this does not invent a URL-format rule.
+ * @param draft - the submitted URL, untrimmed.
+ * @returns a notice, or `undefined` when the URL can be stored.
+ */
+export function baseUrlRefusal(draft: string): string | undefined {
+  if (draft.trim().length === 0) return 'base URL is blank'
+  return undefined
 }
 
 /** Actions offered after a Models roster row is confirmed. */
 export interface ProviderCredentialActions {
   /** Show Clear API key when a writable stored value exists. */
   readonly canClear: boolean
+  /** Show Clear base URL when the stored profile names one. */
+  readonly canClearBaseUrl: boolean
   /** Show Login when this route is a loginable OAuth provider. */
   readonly canLogin: boolean
 }
 
 /**
- * Per-provider credential actions. Set API key is always first; Clear and
- * Login appear only when that write path exists.
+ * Per-provider credential and endpoint actions. Set API key and Set base URL
+ * are always present; Clear and Login appear only when that write path exists.
  * @param actions - which optional rows to include.
  * @returns rows in declaration order.
  */
@@ -187,6 +222,10 @@ export function providerCredentialRows(actions: ProviderCredentialActions): Sele
   ]
   if (actions.canClear) {
     rows.push({ value: 'clear-key', label: 'Clear API key', description: 'Remove the stored key' })
+  }
+  rows.push({ value: 'set-url', label: 'Set base URL', description: 'Override this provider endpoint' })
+  if (actions.canClearBaseUrl) {
+    rows.push({ value: 'clear-url', label: 'Clear base URL', description: 'Use the catalog endpoint' })
   }
   if (actions.canLogin) {
     rows.push({ value: 'login', label: 'Log in', description: 'Subscription OAuth' })

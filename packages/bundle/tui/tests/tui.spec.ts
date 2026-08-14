@@ -504,6 +504,37 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('stores a base URL from the /settings Models panel', async () => {
+    const test = await bench()
+    const mutate: Array<{ op: string; path: readonly string[]; value?: unknown }> = []
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      get: () => ({}),
+      mutate: (_ns: string, ops: ReadonlyArray<{ op: string; path: readonly string[]; value?: unknown }>) => {
+        mutate.push(...ops)
+        return Promise.resolve()
+      },
+    } as never)
+    await app['storeProviderBaseUrl']({
+      provider: 'xai',
+      displayName: 'xAI',
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'xai'],
+    }, 'https://proxy.example/v1')
+    expect(mutate).toEqual([{ op: 'set', path: ['providers', 'xai', 'baseURL'], value: 'https://proxy.example/v1' }])
+    await app['clearProviderBaseUrl']({
+      provider: 'xai',
+      displayName: 'xAI',
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'xai'],
+    })
+    expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['providers', 'xai', 'baseURL'] })
+    expect(app['transcript'].container.render(80).join('\n')).toContain('base URL cleared for xAI')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('reports a missing permission preset service from the settings hub', async () => {
     const test = await bench()
     const { app, code } = await test.run()
