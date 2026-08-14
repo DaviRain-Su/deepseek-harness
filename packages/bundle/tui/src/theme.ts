@@ -1,37 +1,32 @@
 /**
  * Built-in TUI palettes and the OMP editor, Markdown, select-list, and symbol adapters.
  * Hex values for `dark` match Pi coding-agent `dark.json`; the others copy OMP default tokens.
+ * Custom files live under `$DSH_HOME/themes/<id>.json`.
  * @module @deepseek-ai/dsh-tui/theme
  */
 
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { EditorTheme, MarkdownTheme, SelectListTheme, SymbolTheme } from '@oh-my-pi/pi-tui'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { parseThemeDocument, type TuiPalette } from './theme-file.ts'
 
-/** Truecolor tokens one built-in theme paints with. */
-export interface TuiPalette {
-  accent: string
-  borderMuted: string
-  error: string
-  muted: string
-  dim: string
-  text: string
-  selectedBg: string
-  userMessageBg: string
-  userMessageText: string
-  toolPendingBg: string
-  toolSuccessBg: string
-  toolErrorBg: string
-  mdHeading: string
-  mdLink: string
-  mdLinkUrl: string
-  mdCode: string
-  mdCodeBlock: string
-  mdCodeBlockBorder: string
-  mdQuote: string
-  mdQuoteBorder: string
-  mdHr: string
-  mdListBullet: string
-  diffAdd: string
-  diffDel: string
+export type { TuiPalette } from './theme-file.ts'
+export { PALETTE_KEYS } from './theme-file.ts'
+
+const BUILTIN_LABELS: Readonly<Record<string, string>> = {
+  dark: 'Dark',
+  'dark-tokyo-night': 'Tokyo Night',
+  'dark-catppuccin': 'Catppuccin',
+  light: 'Light',
+}
+
+/** Test and production hooks for custom theme discovery. */
+export const themeInternals: {
+  /** Directory of `<id>.json` palettes. Tests replace this. */
+  themesDir: () => string
+} = {
+  themesDir: () => dshHomePath('themes'),
 }
 
 const DARK: TuiPalette = {
@@ -196,47 +191,122 @@ export function currentTuiThemeId(): string {
   return activeThemeId
 }
 
+/** One `/theme` picker row. */
+export interface TuiThemeItem {
+  /** Builtin or custom file stem. */
+  value: string
+  /** Display name. */
+  label: string
+  /** Distinguishes a `$DSH_HOME/themes` file from a builtin. */
+  description?: string
+}
+
 /**
- * Built-in palette ids in the order `/theme` lists them.
- * @returns built-in theme ids in display order.
+ * Builtin ids first, then custom file stems that do not collide, sorted.
+ * @returns theme ids in picker order.
  */
 export function listTuiThemes(): readonly string[] {
-  return Object.keys(TUI_THEMES)
+  return listTuiThemeItems().map(item => item.value)
+}
+
+/**
+ * `/theme` catalog: builtin labels, then custom `$DSH_HOME/themes/<id>.json` files.
+ * @returns picker rows.
+ */
+export function listTuiThemeItems(): readonly TuiThemeItem[] {
+  const items: TuiThemeItem[] = Object.keys(TUI_THEMES).map(id => ({
+    value: id,
+    label: BUILTIN_LABELS[id] ?? id,
+  }))
+  const seen = new Set(Object.keys(TUI_THEMES))
+  for (const id of listCustomThemeIds()) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    items.push({ value: id, label: id, description: 'custom' })
+  }
+  return items
 }
 
 /**
  * Switch the live palette. Existing adapter functions read {@link TUI_COLOR}
  * on each paint, so a following `requestRender` updates chrome already on screen.
- * @param id - a key of {@link TUI_THEMES}.
- * @returns false when `id` is not a built-in theme.
+ * A missing id returns false. An unreadable or invalid custom file throws.
+ * @param id - a builtin key or a custom file stem.
+ * @returns false when `id` is not a builtin and no matching file exists.
  */
 export function applyTuiTheme(id: string): boolean {
-  const palette = TUI_THEMES[id]
-  if (palette === undefined) return false
+  const builtin = TUI_THEMES[id]
+  if (builtin !== undefined) {
+    activeThemeId = id
+    Object.assign(TUI_COLOR, builtin)
+    return true
+  }
+  const file = customThemePath(id)
+  if (file === undefined) return false
+  let raw: string
+  try {
+    raw = readFileSync(file, 'utf8')
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`cannot read theme ${id}: ${detail}`)
+  }
+  const palette = parseThemeDocument(raw, file)
   activeThemeId = id
   Object.assign(TUI_COLOR, palette)
   return true
 }
 
+function listCustomThemeIds(): readonly string[] {
+  let names: string[]
+  try {
+    names = readdirSync(themeInternals.themesDir())
+  } catch (error: unknown) {
+    if (isMissingDir(error)) return []
+    throw error
+  }
+  return names
+    .filter(name => THEME_FILE.test(name))
+    .map(name => name.slice(0, -'.json'.length))
+    .sort()
+}
+
+function customThemePath(id: string): string | undefined {
+  if (!THEME_STEM.test(id)) return undefined
+  const names = listCustomThemeIds()
+  if (!names.includes(id)) return undefined
+  return join(themeInternals.themesDir(), `${id}.json`)
+}
+
+function isMissingDir(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
+const THEME_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/
+const THEME_STEM = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
 /**
  * Wrap `text` in a truecolor foreground. Resets only the foreground so a
- * surrounding background (user bubble, tool card) stays intact.
- * @param hex - `#rrggbb`.
+ * surrounding background (user bubble, tool card) stays intact. An empty
+ * `hex` leaves the terminal default foreground.
+ * @param hex - `#rrggbb`, or empty for the terminal default.
  * @param text - the fragment to color.
- * @returns `text` with an SGR 38:2 prefix and a foreground reset.
+ * @returns `text` with an SGR 38:2 prefix and a foreground reset, or `text`.
  */
 export function fg(hex: string, text: string): string {
+  if (hex === '') return text
   return `${sgr(38, hex)}${text}\x1b[39m`
 }
 
 /**
  * Wrap `text` in a truecolor background. Resets only the background so
- * foreground styles inside the fragment survive.
- * @param hex - `#rrggbb`.
+ * foreground styles inside the fragment survive. An empty `hex` leaves the
+ * terminal default background.
+ * @param hex - `#rrggbb`, or empty for the terminal default.
  * @param text - the fragment to paint, including trailing spaces for full-width fills.
- * @returns `text` with an SGR 48:2 prefix and a background reset.
+ * @returns `text` with an SGR 48:2 prefix and a background reset, or `text`.
  */
 export function bg(hex: string, text: string): string {
+  if (hex === '') return text
   return `${sgr(48, hex)}${text}\x1b[49m`
 }
 

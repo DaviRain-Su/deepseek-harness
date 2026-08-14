@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-一个包 `dsh-user-approval`（`packages/interaction/user-approval`）负责定义词汇表和 `ctx.approval` 服务——即机制。策略——谁来应答、某个会话是否需要被询问——不在其中：应答者是 `approval/request` waterfall 监听器，由拥有通道的插件注册（ACP（Agent Client Protocol）桥、宿主适配器、测试脚本），而每会话的策略层可以在任何通道介入之前做出决定。消费方（`dsh-tools` 的 ask 路由和沙箱升级门禁）将问题解析为一个封闭结果，并从中派生各自的工具结果。刻意设计为一个包，而非能力 seam 的三包拆分（见「替代方案」）。
+一个包 `dsh-user-approval`（`packages/interaction/user-approval`）负责定义词汇表和 `ctx.approval` 服务——即机制。策略——谁来应答、某个会话是否需要被询问——不在其中：应答者是 `approval/request` waterfall 监听器，由拥有通道的插件注册（ACP（Agent Client Protocol）桥、随附 TUI、宿主适配器、测试脚本），而每会话的策略层可以在任何通道介入之前做出决定。消费方（`dsh-tools` 的 ask 路由和沙箱升级门禁）将问题解析为一个封闭结果，并从中派生各自的工具结果。刻意设计为一个包，而非能力 seam 的三包拆分（见「替代方案」）。
 
 ### 部署如何使用它
 
@@ -25,7 +25,7 @@ Status: implemented
   #   policy: never   # deployment default for sessions without an override; 'ask' when omitted
 ```
 
-仅有这条条目只提供机制，不提供通道：没有组合应答者时，每次 ask 都解析为 `unavailable`，发起请求的工具调用会被拒绝——无需配置即可做到故障时默认拒绝。组合 ACP 应用（`@deepseek-ai/dsh-acp-demo`，如 [acp-agent 示例的默认树](../../../../examples/acp-agent/README.md)）即可闭环：其[仅面向自动化的桥接层](../simplification/2026-07-23-acp-automation-only-protocol.md)注册一个应答者，向拥有该会话的客户端发送 `session/request_permission`，携带精确的工具调用 id 和一次性 allow/reject 选项。`policy: never` 是无人值守姿态：每次 ask 都会被确定性地自动拒绝，当前值也会加入运行时上下文快照。`policy` 在插件加载时对照封闭列表校验；非法值直接抛异常。
+仅有这条条目只提供机制，不提供通道：没有组合应答者时，每次 ask 都解析为 `unavailable`，发起请求的工具调用会被拒绝——无需配置即可做到故障时默认拒绝。组合随附 TUI 会注册一个终端应答者，对本会话 agent 弹出 Allow once / Reject（[TUI 审批 overlay](2026-08-14-tui-approval-overlay.md)）。组合 ACP 应用（`@deepseek-ai/dsh-acp-demo`，如 [acp-agent 示例的默认树](../../../../examples/acp-agent/README.md)）即可闭环机器通道：其[仅面向自动化的桥接层](../simplification/2026-07-23-acp-automation-only-protocol.md)注册一个应答者，向拥有该会话的客户端发送 `session/request_permission`，携带精确的工具调用 id 和一次性 allow/reject 选项。`policy: never` 是无人值守姿态：每次 ask 都会被确定性地自动拒绝，当前值也会加入运行时上下文快照。`policy` 在插件加载时对照封闭列表校验；非法值直接抛异常。
 
 组合部署的可观测行为：`allowed-once` 仅允许该次调用继续；拒绝、关闭和通道缺失以三种不同原因拒绝，模型可以区分；轮次内成功的请求会在发起请求的 agent 的会话日志上落一对持久化的 `approval/asked`/`approval/decided` 事件；授权不会在发起请求的调用结束后继续存在。空闲时的请求或审计追加失败会拒绝，而不会返回未经审计的决策。
 

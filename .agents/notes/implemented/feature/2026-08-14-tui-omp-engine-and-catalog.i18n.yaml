@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-tui-omp-engine-and-catalog.md
-2026-08-14-tui-omp-engine-and-catalog.md: 2012cc68c0c65f482a77cdba3077fb1cb0878338
-2026-08-14-tui-omp-engine-and-catalog.zh.md: 294820239d153caddbc216cd58f955c47ef80f67
+2026-08-14-tui-omp-engine-and-catalog.md: 2a40cbd08a37cfa412f962e93d888762934aa392
+2026-08-14-tui-omp-engine-and-catalog.zh.md: c21e322907a3cc56166be1c2f0a26f9e7f696b52

@@ -46,6 +46,21 @@
     },
     {
       "path": "../../boot/cmdline"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../util/home-paths"
+    },
+    {
+      "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../session/session-stats"
     }
   ]
 }

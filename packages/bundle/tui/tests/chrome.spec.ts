@@ -106,6 +106,21 @@ describe('SessionFooter', () => {
     expect(subagentWindowTitle(1)).toBe('dsh · 1 subagent running')
     expect(subagentWindowTitle(2)).toBe('dsh · 2 subagents running')
   })
+
+  it('inserts a durable stats row between cwd and the model row when set', () => {
+    const footer = new SessionFooter('/tmp/work/proj', 'deepseek / v4', '/tmp/work')
+    expect(footer.render(80)).toHaveLength(2)
+    footer.setStatsLine('cache 45% · in 12.2K · out 3K · ctx 38% 48K/128K')
+    const withStats = footer.render(80)
+    expect(withStats).toHaveLength(3)
+    expect(withStats[0]).toContain('~/proj')
+    expect(withStats[1]).toContain('cache 45%')
+    expect(withStats[1]).toContain('ctx 38% 48K/128K')
+    expect(withStats[2]).toContain('deepseek / v4')
+    for (const line of footer.render(20)) expect(visibleWidth(line)).toBeLessThanOrEqual(20)
+    footer.setStatsLine('')
+    expect(footer.render(80)).toHaveLength(2)
+  })
 })
 
 describe('SessionChrome', () => {

@@ -49,6 +49,7 @@ export class SessionHeader implements Component {
 export class SessionFooter implements Component {
   private busy = false
   private subagents = 0
+  private statsLine = ''
 
   /**
    * @param cwd - the process working directory; home is replaced with `~`.
@@ -86,20 +87,34 @@ export class SessionFooter implements Component {
   }
 
   /**
-   * Paint cwd on the first row and the stats/model row on the second.
+   * Replace the durable stats line (cache hit, token totals, throughput,
+   * context occupancy). An empty string hides the row, so the footer stays
+   * two rows until the first billed turn reports usage.
+   * @param line - the formatted stats line, or '' to hide it.
+   */
+  setStatsLine(line: string): void {
+    this.statsLine = line
+  }
+
+  /**
+   * Paint cwd on the first row, the durable stats line on the second when
+   * present, and the stats/model row on the last.
    * @param width - columns available to this component.
-   * @returns cwd on the first row and the stats/model row on the second.
+   * @returns cwd, optional stats line, and the stats/model row.
    */
   render(width: number): string[] {
     const pwd = truncateToWidth(fg(TUI_COLOR.dim, formatCwdForFooter(this.cwd, this.home)), width, Ellipsis.Ascii)
     const running = runningSubagentsLabel(this.subagents)
-    const stats = [
+    const hints = [
       ...this.busy ? ['enter append', 'ctrl+c cancel'] : [],
       ...running === undefined ? [] : [running],
     ].join(' · ')
-    const left = stats === '' ? '' : fg(TUI_COLOR.dim, stats)
+    const left = hints === '' ? '' : fg(TUI_COLOR.dim, hints)
     const right = fg(TUI_COLOR.dim, this.model)
-    return [pwd, alignPair(left, right, width)]
+    const rows = [pwd]
+    if (this.statsLine !== '') rows.push(truncateToWidth(fg(TUI_COLOR.dim, this.statsLine), width, Ellipsis.Ascii))
+    rows.push(alignPair(left, right, width))
+    return rows
   }
 
   /** No cached rows. */

@@ -24,6 +24,14 @@
     - id: code-runtime
       name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 
+    # Whole-log turn/step counts and LLM/tool/first-token/decode wall times,
+    # served through the shared session-projection seam so the TUI stats row
+    # shows full-session figures that paging and compaction cannot change.
+    # token-meter (tokenUsage/contextPressure/contextBreakdown) is already
+    # mounted by dsh-base.
+    - id: session-stats
+      name: '@deepseek-ai/dsh-session-stats'
+
     - id: tui-startup
       name: '@deepseek-ai/dsh-tui/startup'
 

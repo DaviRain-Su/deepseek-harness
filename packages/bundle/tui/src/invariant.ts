@@ -16,9 +16,10 @@ export const inject = ['invariants']
 /**
  * No runtime invariant: the terminal runtime is a process-level TTY owner
  * whose observable contract (raw-mode restore, session create/resume, exit)
- * is owned by the launcher e2e and package tests; it registers commands and
- * a user-questions provider through those services' own disposal, and holds
- * no additional mutable relation to audit inside the tree.
+ * is owned by the launcher e2e and package tests; it registers commands, a
+ * user-questions provider, and an `approval/request` answerer through those
+ * services' own disposal, and holds no additional mutable relation to audit
+ * inside the tree.
  */
 const install: InvariantInstaller = () => {}
 

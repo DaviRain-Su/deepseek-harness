@@ -6,17 +6,23 @@ import AgentRegistry, { Inbox, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, AgentStatus, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { CallId, createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createAssistantMessage, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { ProcessTerminal } from '@oh-my-pi/pi-tui'
 import { apply, Config, internals, TuiApp } from '../src/index.ts'
+import { applyTuiTheme, currentTuiThemeId } from '../src/theme.ts'
 import { FakeTerminal } from './fake-terminal.ts'
 
 const originalInternals = { ...internals }
-afterEach(() => { Object.assign(internals, originalInternals) })
+afterEach(() => {
+  Object.assign(internals, originalInternals)
+  applyTuiTheme('dark')
+})
 
 interface Script {
   before?(session: Session): void
@@ -56,6 +62,7 @@ async function bench(script: Script = {}): Promise<{
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(CommandRuntime)
   await ctx.plugin(UserQuestionService)
+  await ctx.plugin(ApprovalService)
   await ctx.plugin(AgentDefaultModelConfig, { provider: 'test-provider', model: 'test-model' })
   const createAgent = async (
     ownerCtx: Context,
@@ -137,7 +144,7 @@ async function bench(script: Script = {}): Promise<{
       const ready = new Promise<TuiApp>((resolve) => {
         internals.onReady = resolve
       })
-      apply(ctx, { resume })
+      apply(ctx, new Config({ resume }))
       return { app: await ready, code: exited, err }
     },
   }
@@ -146,7 +153,7 @@ async function bench(script: Script = {}): Promise<{
 describe('tui runtime', () => {
   it('fails loud without the launcher-provided exit request', () => {
     const ctx = new Context()
-    expect(() => { apply(ctx, { resume: '' }) }).toThrow('must provide ctx.appExit')
+    expect(() => { apply(ctx, new Config({ resume: '' })) }).toThrow('must provide ctx.appExit')
   })
 
   it('rejects a non-TTY stdin', () => {
@@ -156,7 +163,7 @@ describe('tui runtime', () => {
     internals.isTTY = () => false
     internals.stderr = { write: (chunk: string) => { err += chunk; return true } }
     ctx.provide('appExit', (value: number) => { code = value })
-    apply(ctx, { resume: '' })
+    apply(ctx, new Config({ resume: '' }))
     expect(err).toContain('interactive TTY')
     expect(code).toBe(1)
   })
@@ -165,8 +172,8 @@ describe('tui runtime', () => {
     expect(internals.createTerminal()).toBeInstanceOf(ProcessTerminal)
     originalInternals.isTTY()
     originalInternals.onReady({} as TuiApp)
-    expect(new Config({} as never)).toEqual({ resume: '' })
-    expect(new Config({ resume: 'abc' })).toEqual({ resume: 'abc' })
+    expect(new Config({} as never)).toEqual({ resume: '', theme: 'dark' })
+    expect(new Config({ resume: 'abc' })).toEqual({ resume: 'abc', theme: 'dark' })
   })
 
   it('does not default-export the plugin namespace', async () => {
@@ -395,7 +402,7 @@ describe('tui runtime', () => {
     ctx.provide('commands', { register: () => () => {}, list: () => [], execute: () => Promise.resolve(undefined) } as never)
     ctx.provide('userQuestions', { registerProvider: () => () => {} } as never)
     ctx.provide('agents', { create: () => Promise.reject(new Error('factory exploded')) } as never)
-    apply(ctx, { resume: '' })
+    apply(ctx, new Config({ resume: '' }))
     expect(await exited).toBe(1)
     expect(err).toBe('dsh: factory exploded\n')
     await ctx.fiber.dispose()
@@ -420,7 +427,7 @@ describe('tui runtime', () => {
       },
     }
     ctx.provide('agents', { create: () => rejected } as never)
-    apply(ctx, { resume: '' })
+    apply(ctx, new Config({ resume: '' }))
     expect(await exited).toBe(1)
     expect(err).toBe('dsh: factory exploded\n')
     await ctx.fiber.dispose()
@@ -443,7 +450,7 @@ describe('tui runtime', () => {
     let release: (() => void) | undefined
     const settlement = new Promise<void>((resolve) => { release = resolve })
     ctx.provide('loader', { await: () => settlement } as never)
-    apply(ctx, { resume: '' })
+    apply(ctx, new Config({ resume: '' }))
     await services.dispose()
     release?.()
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -549,6 +556,196 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('opens an effort picker after /model when the model exposes efforts, and persists the choice', async () => {
+    const test = await bench()
+    test.ctx.provide('llm', {
+      listProviders: () => [{ id: 'openai', name: 'openai' }],
+      listModels: async () => [{ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }],
+      resolveModelInfo: async () => ({
+        provider: 'openai',
+        id: 'gpt-4.1',
+        name: 'GPT 4.1',
+        reasoning: {
+          efforts: [
+            { id: ReasoningEffortId('off'), name: 'Off' },
+            { id: ReasoningEffortId('high'), name: 'High' },
+            { id: ReasoningEffortId('max'), name: 'Max' },
+          ],
+          defaultEffort: ReasoningEffortId('high'),
+        },
+      }),
+    } as never)
+    const saved: { provider: string; model: string; reasoningEffort?: string }[] = []
+    test.ctx.provide('settings', {
+      register: () => ({ get: () => ({ provider: 'openai', model: 'gpt-4.1' }), watch: () => () => {} }),
+      get: () => ({ provider: 'openai', model: 'gpt-4.1' }),
+      replace: async (_ns: unknown, section: { provider: string; model: string; reasoningEffort?: string }) => {
+        saved.push(section)
+      },
+    } as never)
+    const { app, code } = await test.run()
+    await app.openModelPicker()
+    test.fake.type('\r')
+    await Promise.resolve()
+    // The effort picker is now open with the model default `high` preselected.
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['selection']?.current).toEqual({
+      provider: 'openai', model: 'gpt-4.1', reasoningEffort: ReasoningEffortId('high'),
+    })
+    expect(app['footer'].render(80)[1]).toContain('openai / gpt-4.1 · high')
+    expect(saved).toEqual([{ provider: 'openai', model: 'gpt-4.1', reasoningEffort: 'high' }])
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('cancels the whole /model switch when the effort picker is dismissed', async () => {
+    const test = await bench()
+    test.ctx.provide('llm', {
+      listProviders: () => [{ id: 'openai', name: 'openai' }],
+      listModels: async () => [{ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }],
+      resolveModelInfo: async () => ({
+        provider: 'openai',
+        id: 'gpt-4.1',
+        name: 'GPT 4.1',
+        reasoning: {
+          efforts: [
+            { id: ReasoningEffortId('off'), name: 'Off' },
+            { id: ReasoningEffortId('high'), name: 'High' },
+          ],
+          defaultEffort: ReasoningEffortId('high'),
+        },
+      }),
+    } as never)
+    const saved: unknown[] = []
+    test.ctx.provide('settings', {
+      register: () => ({ get: () => ({ provider: 'openai', model: 'gpt-4.1' }), watch: () => () => {} }),
+      get: () => ({ provider: 'openai', model: 'gpt-4.1' }),
+      replace: async (_ns: unknown, section: unknown) => { saved.push(section) },
+    } as never)
+    const { app, code } = await test.run()
+    await app.openModelPicker()
+    test.fake.type('\r')
+    await Promise.resolve()
+    // Effort picker open; escape cancels the whole switch.
+    test.fake.type('\x1b')
+    await Promise.resolve()
+    expect(app['selection']?.current).toEqual({ provider: 'openai', model: 'gpt-4.1' })
+    expect(app['footer'].render(80)[1]).toContain('openai / gpt-4.1')
+    expect(saved).toEqual([])
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('rebuilds an open /model picker when llm adapters update', async () => {
+    const test = await bench()
+    let providers = [{ id: 'openai', name: 'openai' }]
+    test.ctx.provide('llm', {
+      listProviders: () => providers,
+      listModels: async (provider: string) => provider === 'openai-codex'
+        ? [{ provider: 'openai-codex', id: 'gpt-5', name: 'GPT 5' }]
+        : [{ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }],
+    } as never)
+    const { app, code } = await test.run()
+    await app.openModelPicker()
+    providers = [
+      { id: 'openai', name: 'openai' },
+      { id: 'openai-codex', name: 'Codex' },
+    ]
+    await app['onAdaptersUpdated']()
+    expect(app['listingModels']).toBe(true)
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    await Promise.resolve()
+    expect(app['selection']?.current).toEqual({ provider: 'openai-codex', model: 'gpt-5' })
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices a newly registered provider when /model is closed', async () => {
+    const test = await bench()
+    let providers = [{ id: 'openai', name: 'openai' }]
+    test.ctx.provide('llm', {
+      listProviders: () => providers,
+      listModels: async () => [{ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }],
+    } as never)
+    const { app, code } = await test.run()
+    providers = [
+      { id: 'openai', name: 'openai' },
+      { id: 'openai-codex', name: 'Codex' },
+    ]
+    test.ctx.emit('llm/adapters-updated')
+    await Promise.resolve()
+    const text = app['transcript'].container.render(80).join('\n')
+    expect(text).toContain('openai-codex available — /model')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices when the current model provider disappears', async () => {
+    const test = await bench()
+    let providers = [{ id: 'openai', name: 'openai' }, { id: 'test-provider', name: 'Test' }]
+    test.ctx.provide('llm', {
+      listProviders: () => providers,
+      listModels: async () => [{ provider: 'test-provider', id: 'test-model', name: 'Test Model' }],
+    } as never)
+    const { app, code } = await test.run()
+    providers = [{ id: 'openai', name: 'openai' }]
+    test.ctx.emit('llm/adapters-updated')
+    await Promise.resolve()
+    const text = app['transcript'].container.render(80).join('\n')
+    expect(text).toContain('test-provider is no longer available')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('skips the effort picker and keeps the footer clean for a non-reasoning model', async () => {
+    const test = await bench()
+    test.ctx.provide('llm', {
+      listProviders: () => [{ id: 'openai', name: 'openai' }],
+      listModels: async () => [{ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }],
+      resolveModelInfo: async () => ({ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }),
+    } as never)
+    const { app, code } = await test.run()
+    await app.openModelPicker()
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['selection']?.current).toEqual({ provider: 'openai', model: 'gpt-4.1' })
+    expect(app['footer'].render(80)[1]).toContain('openai / gpt-4.1')
+    expect(app['footer'].render(80)[1]).not.toContain('·')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('answers an in-turn approval through the Allow once overlay', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const agent = app['agent']!
+    agent.session.append('turn/start', { turn: 1 })
+    const pending = test.ctx.approval.request({
+      agent,
+      toolName: 'bash',
+      reason: 'escalate sandbox to workspace-write',
+    })
+    await Promise.resolve()
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    await expect(pending).resolves.toBe('allowed-once')
+    expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('notices a missing LLM runtime and an empty catalog, and ignores a second overlay', async () => {
     const test = await bench()
     const { app, code } = await test.run()
@@ -566,6 +763,41 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('shows durable token/context stats in the footer from session projections', async () => {
+    const test = await bench()
+    type Listener = (session: Session, key: string, value: unknown, seq: number) => void
+    let listener: Listener | undefined
+    let values: Record<string, unknown> = {}
+    test.ctx.provide('sessionProjections', {
+      snapshot: () => ({ asOfSeq: 0, values }),
+      onChanged: (next: Listener) => { listener = next; return () => { listener = undefined } },
+    } as never)
+    const { app, code } = await test.run()
+    // No token activity yet: footer stays two rows.
+    expect(app['footer'].render(80)).toHaveLength(2)
+    // A billed turn lands: the projection snapshot now carries usage + pressure + stats.
+    values = {
+      tokenUsage: { uncachedInputTokens: 100, outputTokens: 3_000, cacheReadTokens: 900, cacheWriteTokens: 0 },
+      contextPressure: { projectedTokens: 48_000, contextWindow: 128_000 },
+      sessionStats: { turns: 3, steps: 3, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 1_500, decodeTokens: 3_000 },
+    }
+    const session = app['agent']!.session
+    listener!(session, 'tokenUsage', values['tokenUsage'], 1)
+    await Promise.resolve()
+    const rows = app['footer'].render(80)
+    expect(rows).toHaveLength(3)
+    expect(rows[1]).toContain('cache 90%')
+    expect(rows[1]).toContain('ctx 38% 48K/128K')
+    expect(rows[1]).toContain('3 turns')
+    // A change for a different session is ignored.
+    listener!({} as Session, 'tokenUsage', undefined, 2)
+    await Promise.resolve()
+    expect(app['footer'].render(80)[1]).toContain('cache 90%')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('applies /theme and ctrl+p, then restores the dark palette', async () => {
     const test = await bench()
     test.ctx.provide('llm', {
@@ -577,6 +809,54 @@ describe('tui runtime', () => {
     test.fake.type('\r')
     test.fake.type('\x10')
     await Promise.resolve()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('restores a saved /theme id and persists the next pick', async () => {
+    const test = await bench()
+    const stored = { theme: 'light' }
+    const replaced: object[] = []
+    test.ctx.provide('settings', {
+      register: () => ({
+        get: () => stored,
+        watch: () => () => {},
+      }),
+      get: () => stored,
+      replace: async (_ns: unknown, section: object) => {
+        replaced.push(section)
+        Object.assign(stored, section)
+      },
+    } as never)
+    const { app, code } = await test.run()
+    expect(currentTuiThemeId()).toBe('light')
+    await app.submit('/theme')
+    test.fake.type('\x1b[A')
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(currentTuiThemeId()).toBe('dark-catppuccin')
+    expect(replaced).toEqual([{ theme: 'dark-catppuccin' }])
+    expect(app['transcript'].container.render(80).join('\n')).toContain('theme dark-catppuccin')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices an unknown saved /theme id and keeps the live palette', async () => {
+    const test = await bench()
+    test.ctx.provide('settings', {
+      register: () => ({
+        get: () => ({ theme: 'nope' }),
+        watch: () => () => {},
+      }),
+      get: () => ({ theme: 'nope' }),
+      replace: async () => {},
+    } as never)
+    const { app, code } = await test.run()
+    expect(currentTuiThemeId()).toBe('dark')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('unknown theme: nope')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()

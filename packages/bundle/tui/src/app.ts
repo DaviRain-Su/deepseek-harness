@@ -14,35 +14,51 @@ import {
 } from '@oh-my-pi/pi-tui'
 import type { OverlayHandle, SelectItem, Terminal } from '@oh-my-pi/pi-tui'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { parseCommand } from '@deepseek-ai/dsh-commands'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-commands'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { LlmModelInfo, LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { SlashAutocomplete } from './autocomplete.ts'
 import { MeasuredChild, SessionChrome, SessionFooter, SessionHeader, subagentWindowTitle } from './chrome.ts'
 import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
+import { createApprovalAnswerer } from './approval.ts'
+import type { ApprovalOverlayHandle } from './approval.ts'
 import { createQuestionProvider } from './questions.ts'
 import { SubagentTracker } from './subagents.ts'
 import {
   applyTuiTheme,
   currentTuiThemeId,
   fg,
-  listTuiThemes,
+  listTuiThemeItems,
   TUI_COLOR,
   TUI_EDITOR_THEME,
   TUI_SYMBOL_THEME,
 } from './theme.ts'
+import {
+  TUI_THEME_SETTINGS_NAMESPACE,
+  type TuiThemeSettings,
+} from './theme-settings.ts'
 import { TranscriptView, extractText } from './transcript.ts'
+import { statsLine } from './stats.ts'
+// Type-only: load the SessionProjectionMap augmentation (tokenUsage /
+// contextPressure from token-meter, sessionStats from session-stats) so a
+// projection snapshot's values index to their projection types, and the
+// ctx.sessionProjections service typing.
+import type {} from '@deepseek-ai/dsh-token-meter'
+import type {} from '@deepseek-ai/dsh-session-stats'
+import type {} from '@deepseek-ai/dsh-session-projection'
 
 /** Process-facing effects of one TUI run. */
 export interface TuiIo {
@@ -77,7 +93,11 @@ export class TuiApp {
   private tui: TUI | undefined
   private terminal: Terminal | undefined
   private selection: ModelSelectionRef | undefined
-  private overlay: OverlayHandle | undefined
+  private overlay: OverlayHandle | ApprovalOverlayHandle | undefined
+  /** True while the `/model` catalog overlay is the focused overlay. */
+  private listingModels = false
+  /** Provider ids last observed on `ctx.llm`, for addition notices. */
+  private knownProviders = new Set<string>()
   private readonly transcript = new TranscriptView(name => this.ctx.get('tools')?.get(name, this.agent))
   private transcriptMount: MeasuredChild | undefined
   private readonly footer = new SessionFooter(process.cwd(), '')
@@ -86,16 +106,21 @@ export class TuiApp {
   private subagentRunning = 0
   private stopped = false
   private exited = false
+  private disposeStatsListener: (() => void) | undefined
 
   /**
    * @param ctx - plugin context carrying core services and the launcher exit hook.
    * @param resume - persisted session id; empty creates a fresh session.
    * @param io - process-facing effects.
+   * @param themeSource - resolved `tui-theme` section; composition default without settings.
+   * @param wireThemeSettings - register the settings section once `ctx.settings` exists.
    */
   constructor(
     private readonly ctx: Context,
     private readonly resume: string,
     private readonly io: TuiIo,
+    private readonly themeSource: () => TuiThemeSettings = () => ({ theme: 'dark' }),
+    private readonly wireThemeSettings: () => void = () => {},
   ) {}
 
   /**
@@ -103,6 +128,7 @@ export class TuiApp {
    */
   async start(): Promise<void> {
     await this.ctx.get('loader')?.await()
+    this.wireThemeSettings()
     const agents = this.ctx.get('agents')
     const defaultModel = this.ctx.get('agentDefaultModel')
     const sessions = this.ctx.get('sessions')
@@ -140,6 +166,7 @@ export class TuiApp {
     if (this.stopped) return
     this.agent = this.handle.agent
     await this.agent.whenIdle()
+    const themeNotice = this.restoreTheme()
 
     const terminal = internals.createTerminal()
     this.terminal = terminal
@@ -153,6 +180,7 @@ export class TuiApp {
     tui.addChild(header)
     tui.addChild(transcript)
     for (const event of agent.session.events) this.applyEvent(event, true)
+    this.wireStats()
 
     const editor = new Editor(TUI_EDITOR_THEME)
     editor.setAutocompleteProvider(new SlashAutocomplete(this.listSlashCommands))
@@ -228,6 +256,17 @@ export class TuiApp {
       handler: () => ({ kind: 'success' as const, text: '' }),
     })
     userQuestions.registerProvider(createQuestionProvider(tui))
+    this.ctx.on('approval/request', createApprovalAnswerer(
+      tui,
+      () => this.agent,
+      {
+        onOpen: (handle) => {
+          this.hideOverlay()
+          this.overlay = handle
+        },
+        onClose: () => { this.overlay = undefined },
+      },
+    ))
     const tracker = new SubagentTracker(this.transcript.container, {
       resolveAgent: id => this.ctx.get('agents')?.get(id),
       lookupTool: (name, scoped) => this.ctx.get('tools')?.get(name, scoped ?? agent),
@@ -272,8 +311,11 @@ export class TuiApp {
       this.tui?.requestRender()
     })
 
+    this.snapshotProviders()
+    this.ctx.on('llm/adapters-updated', () => { void this.onAdaptersUpdated() })
     tui.start()
     terminal.setTitle(subagentWindowTitle(0))
+    if (themeNotice !== undefined) this.notice(themeNotice)
     internals.onReady(this)
   }
 
@@ -382,10 +424,42 @@ export class TuiApp {
     this.abort.abort()
     this.hideOverlay()
     this.hideWorking()
+    this.disposeStatsListener?.()
+    this.disposeStatsListener = undefined
     this.terminal?.setProgress(false)
     this.terminal?.setTitle(subagentWindowTitle(0))
     this.tui?.stop()
     this.tui = undefined
+  }
+
+  /**
+   * Subscribe to durable session projection changes and push the first stats
+   * line. `token-meter` and `session-stats` own the folds; the TUI only reads
+   * the consistent snapshot cut.
+   */
+  private wireStats(): void {
+    const projections = this.ctx.get('sessionProjections')
+    const agent = this.agent
+    if (projections === undefined || agent === undefined) return
+    const session = agent.session
+    this.disposeStatsListener = projections.onChanged((changed: Session) => {
+      if (changed !== session) return
+      this.refreshStats()
+      this.tui?.requestRender()
+    })
+    this.refreshStats()
+  }
+
+  /**
+   * Read one consistent projection cut and push the formatted stats line to
+   * the footer. Synchronous and O(1) over the cached log watermark.
+   */
+  private refreshStats(): void {
+    const projections = this.ctx.get('sessionProjections')
+    const agent = this.agent
+    if (projections === undefined || agent === undefined) return
+    const values = projections.snapshot(agent.session).values
+    this.footer.setStatsLine(statsLine(values.tokenUsage, values.contextPressure, values.sessionStats))
   }
 
   /**
@@ -415,8 +489,10 @@ export class TuiApp {
   }
 
   /**
-   * Open `/model`: list registered `ctx.llm` routes, then mutate the live
-   * selection and persist it through `agentDefaultModel.saveSelection`.
+   * Open `/model`: list registered `ctx.llm` routes. Selecting a model
+   * resolves its reasoning efforts and either applies the switch directly or
+   * opens a second picker for the effort level; the live selection is then
+   * mutated and persisted through `agentDefaultModel.saveSelection`.
    */
   async openModelPicker(): Promise<void> {
     const tui = this.tui
@@ -444,32 +520,28 @@ export class TuiApp {
       {
         onSelect: (item) => {
           this.hideOverlay()
-          void this.applyModelPick(item)
+          void this.chooseEffortThenApply(item)
         },
         onCancel: () => { this.hideOverlay() },
       },
       selectedValue,
     )
+    this.listingModels = true
     this.overlay = showPicker(tui, picker)
   }
 
-  /** Open `/theme` over the built-in palette set. */
+  /** Open `/theme` over builtins and `$DSH_HOME/themes/*.json`. */
   openThemePicker(): void {
     const tui = this.tui
     if (tui === undefined || this.overlay !== undefined) return
-    const items = listTuiThemes().map(id => ({ value: id, label: id }))
     const picker = new OverlayPicker(
       'Theme',
-      items,
+      listTuiThemeItems(),
       '↑/↓ · Enter apply · Esc close',
       {
         onSelect: (item) => {
           this.hideOverlay()
-          if (!applyTuiTheme(item.value)) {
-            this.notice(`unknown theme: ${item.value}`)
-            return
-          }
-          this.notice(`theme ${item.value}`)
+          void this.applyThemePick(item)
         },
         onCancel: () => { this.hideOverlay() },
       },
@@ -573,21 +645,163 @@ export class TuiApp {
   private hideOverlay(): void {
     this.overlay?.hide()
     this.overlay = undefined
+    this.listingModels = false
     this.tui?.requestRender()
   }
 
+  /** Record the current `ctx.llm` provider ids so later additions can notice. */
+  private snapshotProviders(): void {
+    const ids = this.ctx.get('llm')?.listProviders().map(provider => provider.id) ?? []
+    this.knownProviders = new Set(ids)
+  }
+
   /**
-   * Apply a `/model` confirmation to the live selection, footer, and settings.
-   * @param item - the picker row whose value is `provider\\0model`.
+   * Rebuild an open `/model` picker after a topology commit, and notice
+   * newly registered provider ids when the picker is closed.
    */
-  private async applyModelPick(item: SelectItem): Promise<void> {
+  private async onAdaptersUpdated(): Promise<void> {
+    if (this.stopped) return
+    const llm = this.ctx.get('llm')
+    const next = new Set(llm?.listProviders().map(provider => provider.id) ?? [])
+    const added = [...next].filter(id => !this.knownProviders.has(id)).sort()
+    const removed = [...this.knownProviders].filter(id => !next.has(id)).sort()
+    this.knownProviders = next
+    if (this.listingModels) {
+      this.hideOverlay()
+      await this.openModelPicker()
+      return
+    }
+    if (added.length > 0) this.notice(`${added.join(', ')} available — /model`)
+    const current = this.selection?.current?.provider
+    if (current !== undefined && removed.includes(current)) {
+      this.notice(`${current} is no longer available`)
+    }
+  }
+
+  /**
+   * Apply a `/theme` confirmation to the live palette, transcript paint, and settings.
+   * @param item - the picker row whose value is a builtin id or custom stem.
+   */
+  private async applyThemePick(item: SelectItem): Promise<void> {
+    try {
+      if (!applyTuiTheme(item.value)) {
+        this.notice(`unknown theme: ${item.value}`)
+        return
+      }
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+      return
+    }
+    this.transcript.container.invalidate()
+    this.tui?.requestRender()
+    await this.ctx.get('settings')?.replace(TUI_THEME_SETTINGS_NAMESPACE, { theme: item.value })
+    this.notice(`theme ${item.value}`)
+  }
+
+  /**
+   * Resolve the picked model's reasoning efforts and either apply the switch
+   * directly (a model with no selectable efforts) or open a second picker for
+   * the effort level. A model whose efforts cannot be resolved — an unreachable
+   * provider or an adapter that cannot describe this exact route — is applied
+   * without an effort, and the request path refuses if it is unsupported.
+   * @param item - the picker row whose value is `provider\0model`.
+   */
+  private async chooseEffortThenApply(item: SelectItem): Promise<void> {
     const parsed = parseModelValue(item.value)
     if (parsed === undefined || this.selection === undefined) return
-    this.selection.current = parsed
-    this.footer.setModel(modelLabel(parsed))
+    const llm = this.ctx.get('llm')
+    let efforts: readonly LlmReasoningEffortInfo[] | undefined
+    let defaultEffort: ReasoningEffortId | undefined
+    if (llm !== undefined) {
+      try {
+        const info = await llm.resolveModelInfo(parsed.provider, parsed.model)
+        if (info.reasoning !== undefined && info.reasoning.efforts.length > 0) {
+          efforts = info.reasoning.efforts
+          defaultEffort = info.reasoning.defaultEffort
+        }
+      } catch {
+        // Apply without an effort; the request path refuses if unsupported.
+      }
+    }
+    if (efforts === undefined || efforts.length === 0) {
+      await this.applyModelSelection({ provider: parsed.provider, model: parsed.model })
+      return
+    }
+    const current = this.selection.current
+    const currentEffort = current !== undefined
+      && current.provider === parsed.provider && current.model === parsed.model
+      ? current.reasoningEffort : undefined
+    this.openEffortPicker(parsed, efforts, currentEffort ?? defaultEffort)
+  }
+
+  /**
+   * Open the second-step effort picker for a just-confirmed model. Escape
+   * cancels the whole switch, leaving the prior selection untouched.
+   * @param parsed - the provider/model the model picker confirmed.
+   * @param efforts - the model's selectable reasoning efforts, in display order.
+   * @param preselected - the effort id to highlight, when any.
+   */
+  private openEffortPicker(
+    parsed: { provider: string; model: string },
+    efforts: readonly LlmReasoningEffortInfo[],
+    preselected: ReasoningEffortId | undefined,
+  ): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const items: SelectItem[] = efforts.map(effort => ({
+      value: String(effort.id),
+      label: effort.name,
+      ...effort.description === undefined ? {} : { description: effort.description },
+    }))
+    const picker = new OverlayPicker(
+      'Effort',
+      items,
+      '↑/↓ · Enter apply · Esc cancel',
+      {
+        onSelect: (effortItem) => {
+          this.hideOverlay()
+          void this.applyModelSelection({
+            provider: parsed.provider,
+            model: parsed.model,
+            reasoningEffort: ReasoningEffortId(effortItem.value),
+          })
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+      preselected === undefined ? undefined : String(preselected),
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Apply a complete model selection to the live selection, footer, and
+   * settings. Unlike a raw `parseModelValue` result, `next` carries the effort
+   * the picker chose, so a switch no longer drops a previously stored effort.
+   * @param next - the resolved provider, model, and optional reasoning effort.
+   */
+  private async applyModelSelection(next: ModelSelection): Promise<void> {
+    if (this.selection === undefined) return
+    this.selection.current = next
+    this.footer.setModel(modelLabel(next))
     this.tui?.requestRender()
-    await this.ctx.get('agentDefaultModel')?.saveSelection(parsed)
-    this.notice(`model ${parsed.provider} / ${parsed.model}`)
+    await this.ctx.get('agentDefaultModel')?.saveSelection(next)
+    const effort = next.reasoningEffort === undefined ? '' : ` · ${String(next.reasoningEffort)}`
+    this.notice(`model ${next.provider} / ${next.model}${effort}`)
+  }
+
+  /**
+   * Load the resolved `/theme` id before the first paint. Unknown or invalid
+   * ids leave the live palette unchanged and return notice text.
+   * @returns a notice when the saved id cannot be applied, otherwise undefined.
+   */
+  private restoreTheme(): string | undefined {
+    const id = this.themeSource().theme
+    try {
+      if (!applyTuiTheme(id)) return `unknown theme: ${id}`
+    } catch (error: unknown) {
+      return error instanceof Error ? error.message : String(error)
+    }
+    return undefined
   }
 }
 
@@ -608,9 +822,10 @@ function parseModelValue(value: string): { provider: string; model: string } | u
   return { provider: value.slice(0, split), model: value.slice(split + 1) }
 }
 
-function modelLabel(selection: { provider: string; model: string } | undefined): string {
+function modelLabel(selection: { provider: string; model: string; reasoningEffort?: ReasoningEffortId } | undefined): string {
   if (selection === undefined) return ''
-  return `${selection.provider} / ${selection.model}`
+  const base = `${selection.provider} / ${selection.model}`
+  return selection.reasoningEffort === undefined ? base : `${base} · ${String(selection.reasoningEffort)}`
 }
 
 function modelItem(provider: string, model: LlmModelInfo): SelectItem {
