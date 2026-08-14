@@ -3,8 +3,9 @@
  * whose rows are sub-panels; `app.ts` dispatches a confirmed row. Permission
  * reads the mounted `PermissionPresetService` and writes through `set`.
  * Models lists configurable providers and offers Set / Clear API key, Set /
- * Clear base URL, plus Login; Inventory is a read-only roster; Sections lists
- * namespaces and, when a section has field names, a name-only field picker.
+ * Clear base URL, Set / Clear display name, plus Login; Inventory is a
+ * read-only roster; Sections lists namespaces and, when a section has field
+ * names, a name-only field picker.
  * @module @deepseek-ai/dsh-tui/settings
  */
 
@@ -272,7 +273,7 @@ export function apiKeyRefusal(draft: string): string | undefined {
  * A string field on the stored profile at `path`.
  * @param section - the namespace's resolved section, or undefined when unset.
  * @param path - {@link ModelsProviderEntry.settingsPath}.
- * @param field - the profile key (`apiKeyEnv`, `baseURL`).
+ * @param field - the profile key (`apiKeyEnv`, `baseURL`, `displayName`).
  * @returns the non-empty string, or undefined when absent.
  */
 function profileStringOf(section: unknown, path: readonly string[], field: string): string | undefined {
@@ -307,6 +308,16 @@ export function baseUrlOf(section: unknown, path: readonly string[]): string | u
 }
 
 /**
+ * The `displayName` a stored profile already names.
+ * @param section - the namespace's resolved section, or undefined when unset.
+ * @param path - {@link ModelsProviderEntry.settingsPath}.
+ * @returns the label, or undefined when the profile names none.
+ */
+export function displayNameOf(section: unknown, path: readonly string[]): string | undefined {
+  return profileStringOf(section, path, 'displayName')
+}
+
+/**
  * Why a typed base URL cannot be stored. An empty field is not a failure —
  * Escape cancels instead. Whitespace-only refuses; the settings schema is a
  * plain string, so this does not invent a URL-format rule.
@@ -318,19 +329,36 @@ export function baseUrlRefusal(draft: string): string | undefined {
   return undefined
 }
 
+/**
+ * Why a typed display name cannot be stored. An empty field is not a failure —
+ * Escape cancels instead. Whitespace-only refuses; `llm-pi-ai` rejects an
+ * empty `displayName`, and the TUI does not invent a format rule.
+ * @param draft - the submitted name, untrimmed.
+ * @returns a notice, or `undefined` when the name can be stored.
+ */
+export function displayNameRefusal(draft: string): string | undefined {
+  if (draft.trim().length === 0) return 'display name is blank'
+  return undefined
+}
+
 /** Actions offered after a Models roster row is confirmed. */
 export interface ProviderCredentialActions {
   /** Show Clear API key when a writable stored value exists. */
   readonly canClear: boolean
   /** Show Clear base URL when the stored profile names one. */
   readonly canClearBaseUrl: boolean
+  /** Show Set display name when the profile is a nested settings object. */
+  readonly canSetDisplayName: boolean
+  /** Show Clear display name when the stored profile names one. */
+  readonly canClearDisplayName: boolean
   /** Show Login when this route is a loginable OAuth provider. */
   readonly canLogin: boolean
 }
 
 /**
- * Per-provider credential and endpoint actions. Set API key and Set base URL
- * are always present; Clear and Login appear only when that write path exists.
+ * Per-provider credential, endpoint, and label actions. Set API key and Set
+ * base URL are always present; display-name rows and Clear / Login appear
+ * only when that write path exists.
  * @param actions - which optional rows to include.
  * @returns rows in declaration order.
  */
@@ -344,6 +372,12 @@ export function providerCredentialRows(actions: ProviderCredentialActions): Sele
   rows.push({ value: 'set-url', label: 'Set base URL', description: 'Override this provider endpoint' })
   if (actions.canClearBaseUrl) {
     rows.push({ value: 'clear-url', label: 'Clear base URL', description: 'Use the catalog endpoint' })
+  }
+  if (actions.canSetDisplayName) {
+    rows.push({ value: 'set-name', label: 'Set display name', description: 'Override this provider label' })
+  }
+  if (actions.canClearDisplayName) {
+    rows.push({ value: 'clear-name', label: 'Clear display name', description: 'Use the route id' })
   }
   if (actions.canLogin) {
     rows.push({ value: 'login', label: 'Log in', description: 'Subscription OAuth' })

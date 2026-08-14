@@ -10,6 +10,8 @@ import {
   apiKeyRefusal,
   baseUrlOf,
   baseUrlRefusal,
+  displayNameOf,
+  displayNameRefusal,
   deriveKeyRef,
   inventoryRows,
   modelsRowDescription,
@@ -193,12 +195,32 @@ describe('baseUrlRefusal', () => {
   })
 })
 
+describe('displayNameOf', () => {
+  it('walks the settings path to the named label', () => {
+    expect(displayNameOf({ providers: { xai: { displayName: 'xAI' } } }, ['providers', 'xai']))
+      .toBe('xAI')
+    expect(displayNameOf({ displayName: 'DeepSeek' }, [])).toBe('DeepSeek')
+    expect(displayNameOf({}, ['providers', 'xai'])).toBeUndefined()
+  })
+})
+
+describe('displayNameRefusal', () => {
+  it('refuses a blank name and accepts any non-empty string', () => {
+    expect(displayNameRefusal('  ')).toBe('display name is blank')
+    expect(displayNameRefusal('Acme Gateway')).toBeUndefined()
+  })
+})
+
 describe('providerCredentialRows', () => {
-  it('always offers Set API key and Set base URL, and appends Clear and Login when available', () => {
-    expect(providerCredentialRows({ canClear: false, canClearBaseUrl: false, canLogin: false }).map(row => row.value))
+  it('always offers Set API key and Set base URL, and appends display-name, Clear, and Login when available', () => {
+    expect(providerCredentialRows({
+      canClear: false, canClearBaseUrl: false, canSetDisplayName: false, canClearDisplayName: false, canLogin: false,
+    }).map(row => row.value))
       .toEqual(['set-key', 'set-url'])
-    expect(providerCredentialRows({ canClear: true, canClearBaseUrl: true, canLogin: true }).map(row => row.value))
-      .toEqual(['set-key', 'clear-key', 'set-url', 'clear-url', 'login'])
+    expect(providerCredentialRows({
+      canClear: true, canClearBaseUrl: true, canSetDisplayName: true, canClearDisplayName: true, canLogin: true,
+    }).map(row => row.value))
+      .toEqual(['set-key', 'clear-key', 'set-url', 'clear-url', 'set-name', 'clear-name', 'login'])
   })
 })
 

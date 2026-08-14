@@ -563,6 +563,37 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('stores a display name from the /settings Models panel', async () => {
+    const test = await bench()
+    const mutate: Array<{ op: string; path: readonly string[]; value?: unknown }> = []
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      get: () => ({}),
+      mutate: (_ns: string, ops: ReadonlyArray<{ op: string; path: readonly string[]; value?: unknown }>) => {
+        mutate.push(...ops)
+        return Promise.resolve()
+      },
+    } as never)
+    await app['storeProviderDisplayName']({
+      provider: 'xai',
+      displayName: 'xAI',
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'xai'],
+    }, 'Acme')
+    expect(mutate).toEqual([{ op: 'set', path: ['providers', 'xai', 'displayName'], value: 'Acme' }])
+    await app['clearProviderDisplayName']({
+      provider: 'xai',
+      displayName: 'xAI',
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'xai'],
+    })
+    expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['providers', 'xai', 'displayName'] })
+    expect(app['transcript'].container.render(80).join('\n')).toContain('display name cleared for xai')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('reports a missing permission preset service from the settings hub', async () => {
     const test = await bench()
     const { app, code } = await test.run()

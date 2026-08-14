@@ -29,4 +29,5 @@ The per-provider picker always offers Set base URL. Clear base URL appears when 
 ## Related
 
 - [TUI writable Models](2026-08-14-tui-writable-models.md) — the key write this picker already had.
+- [TUI writable display name](2026-08-14-tui-writable-display-name.md) — the label write on the same picker.
 - [TUI settings file path](2026-08-14-tui-settings-file-path.md) — the hub row that names the file.

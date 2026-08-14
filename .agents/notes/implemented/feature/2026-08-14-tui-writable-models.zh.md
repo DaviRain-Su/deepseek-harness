@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-选中 Models 一行后打开 Set API key；当 `describe()` 报告存在可写已存值时出现 Clear API key；当 `ctx.llmOAuth` 列出该路由时出现 Login。Set 复用 `LoginTextForm`。键入的密钥存到 profile 已有的 `apiKeyEnv` 下；若没有，则先 `mutate` 记下 `deriveKeyRef(provider)` 再写入。Clear 调用 `credentials.unset`。订阅 OAuth 仍走 `/login`。缺少 `ctx.credentials` 或 `ctx.settings` 时提示。Base URL 是后续写入（[TUI 可写 base URL](2026-08-14-tui-writable-base-url.md)）；模型列表仍不走这条路径。
+选中 Models 一行后打开 Set API key；当 `describe()` 报告存在可写已存值时出现 Clear API key；当 `ctx.llmOAuth` 列出该路由时出现 Login。Set 复用 `LoginTextForm`。键入的密钥存到 profile 已有的 `apiKeyEnv` 下；若没有，则先 `mutate` 记下 `deriveKeyRef(provider)` 再写入。Clear 调用 `credentials.unset`。订阅 OAuth 仍走 `/login`。缺少 `ctx.credentials` 或 `ctx.settings` 时提示。Base URL 和 display name 是同一 picker 上的后续写入（[TUI 可写 base URL](2026-08-14-tui-writable-base-url.md)、[TUI 可写 display name](2026-08-14-tui-writable-display-name.md)）；模型列表仍不走这条路径。
 
 ## 考虑过的替代方案
 
@@ -31,3 +31,4 @@ Status: implemented
 - [TUI settings Models 面板](2026-08-14-tui-settings-models-panel.md) — 本写入路径所在的名册。
 - [TUI 登录 overlay](2026-08-14-tui-login-overlay.md) — 订阅 OAuth，仍是 Login 行。
 - [TUI 可写 base URL](2026-08-14-tui-writable-base-url.md) — 同一 picker 上的端点写入。
+- [TUI 可写 display name](2026-08-14-tui-writable-display-name.md) — 同一 picker 上的标签写入。

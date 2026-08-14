@@ -10,7 +10,7 @@ The [Models roster](2026-08-14-tui-settings-models-panel.md) listed configurable
 
 ## Decision
 
-Selecting a Models row opens Set API key, Clear API key when `describe()` reports a writable stored value, and Login when `ctx.llmOAuth` lists that route. Set reuses `LoginTextForm`. A typed key stores under the profile's existing `apiKeyEnv`, or under `deriveKeyRef(provider)` after a `mutate` that records that reference. Clear calls `credentials.unset`. `/login` remains the subscription OAuth write. Missing `ctx.credentials` or `ctx.settings` notices. Base URL is a later write ([TUI writable base URL](2026-08-14-tui-writable-base-url.md)); model lists stay off this path.
+Selecting a Models row opens Set API key, Clear API key when `describe()` reports a writable stored value, and Login when `ctx.llmOAuth` lists that route. Set reuses `LoginTextForm`. A typed key stores under the profile's existing `apiKeyEnv`, or under `deriveKeyRef(provider)` after a `mutate` that records that reference. Clear calls `credentials.unset`. `/login` remains the subscription OAuth write. Missing `ctx.credentials` or `ctx.settings` notices. Base URL and display name are later writes on the same picker ([TUI writable base URL](2026-08-14-tui-writable-base-url.md), [TUI writable display name](2026-08-14-tui-writable-display-name.md)); model lists stay off this path.
 
 ## Alternatives considered
 
@@ -31,3 +31,4 @@ Selecting a Models row opens Set API key, Clear API key when `describe()` report
 - [TUI settings Models panel](2026-08-14-tui-settings-models-panel.md) — the roster this write path sits on.
 - [TUI login overlay](2026-08-14-tui-login-overlay.md) — subscription OAuth, still the Login row.
 - [TUI writable base URL](2026-08-14-tui-writable-base-url.md) — the endpoint write on the same picker.
+- [TUI writable display name](2026-08-14-tui-writable-display-name.md) — the label write on the same picker.

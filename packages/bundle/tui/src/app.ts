@@ -42,7 +42,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, displayNameOf, displayNameRefusal, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
 import { presetPickerItem, sessionBlank } from './presets.ts'
@@ -852,7 +852,7 @@ export class TuiApp {
   /**
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
    * Appearance reuses the theme picker; Models lists configurable providers
-   * and writes API keys and base URLs; Permission switches the preset through
+   * and writes API keys, base URLs, and display names; Permission switches the preset through
    * the mounted `ctx.get('permissionPresets')` service; Sections lists
    * `ctx.settings.describe({ redactSecrets: true })` namespaces and field
    * names; Settings file notices `ctx.settings.documentPath` when the
@@ -1015,8 +1015,9 @@ export class TuiApp {
    * Models sub-panel: configurable LLM providers from
    * `ctx.get('llm').listConfigurableProviders()`. Each row describes the
    * settings namespace, whether a key is stored, and the profile `baseURL`.
-   * Selecting a row opens Set / Clear API key, Set / Clear base URL, and
-   * Login; writes go through `ctx.credentials` and `ctx.settings.mutate`.
+   * Selecting a row opens Set / Clear API key, Set / Clear base URL, Set /
+   * Clear display name when the profile is nested, and Login; writes go
+   * through `ctx.credentials` and `ctx.settings.mutate`.
    */
   private async openModelsPicker(): Promise<void> {
     const operation = this.beginOverlayOperation()
@@ -1079,8 +1080,8 @@ export class TuiApp {
   }
 
   /**
-   * Overlay of Set / Clear API key, Set / Clear base URL, and Login for one
-   * configurable provider.
+   * Overlay of Set / Clear API key, Set / Clear base URL, Set / Clear
+   * display name, and Login for one configurable provider.
    * @param provider - the roster row that was confirmed.
    */
   private async openProviderActions(provider: ModelsProviderEntry): Promise<void> {
@@ -1099,14 +1100,17 @@ export class TuiApp {
         }
       }
       const settings = this.ctx.get('settings')
-      const canClearBaseUrl = settings !== undefined
-        && baseUrlOf(settings.get(settingsNamespace(provider.settingsNs)), provider.settingsPath ?? []) !== undefined
+      const path = provider.settingsPath ?? []
+      const section = settings === undefined ? undefined : settings.get(settingsNamespace(provider.settingsNs))
+      const canClearBaseUrl = section !== undefined && baseUrlOf(section, path) !== undefined
+      const canSetDisplayName = path.length > 0
+      const canClearDisplayName = section !== undefined && displayNameOf(section, path) !== undefined
       const canLogin = this.ctx.get('llmOAuth')?.loginableProviders()
         .some(candidate => candidate.id === provider.provider) ?? false
       if (!this.canCommitOverlay(operation)) return
       const picker = new OverlayPicker(
         provider.displayName,
-        providerCredentialRows({ canClear, canClearBaseUrl, canLogin }),
+        providerCredentialRows({ canClear, canClearBaseUrl, canSetDisplayName, canClearDisplayName, canLogin }),
         '↑/↓ · Enter · Esc close',
         {
           onSelect: (item) => {
@@ -1115,6 +1119,8 @@ export class TuiApp {
             else if (item.value === 'clear-key') void this.clearProviderKey(provider)
             else if (item.value === 'set-url') void this.promptProviderBaseUrl(provider)
             else if (item.value === 'clear-url') void this.clearProviderBaseUrl(provider)
+            else if (item.value === 'set-name') void this.promptProviderDisplayName(provider)
+            else if (item.value === 'clear-name') void this.clearProviderDisplayName(provider)
             else if (item.value === 'login') void this.startLogin(provider.provider)
           },
           onCancel: () => { this.hideOverlay() },
@@ -1219,6 +1225,67 @@ export class TuiApp {
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  /**
+   * Prompt for a display name and store it through `ctx.settings.mutate`.
+   * @param provider - the roster row being edited.
+   */
+  private async promptProviderDisplayName(provider: ModelsProviderEntry): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const form = new LoginTextForm(`Display name for ${provider.provider}`, 'label', false)
+    this.overlay = tui.showOverlay(form, { anchor: 'bottom-center', width: '90%', maxHeight: '40%' })
+    try {
+      const draft = await form.wait(this.abort.signal)
+      const refusal = displayNameRefusal(draft)
+      if (refusal !== undefined) {
+        this.notice(refusal)
+        return
+      }
+      await this.storeProviderDisplayName(provider, draft.trim())
+      this.notice(`display name stored for ${provider.provider}`)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message !== LOGIN_CANCELLED) this.notice(message)
+    } finally {
+      this.hideOverlay()
+    }
+  }
+
+  /**
+   * Remove the stored `displayName` so the route id wins again.
+   * @param provider - the roster row being cleared.
+   */
+  private async clearProviderDisplayName(provider: ModelsProviderEntry): Promise<void> {
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) {
+      this.notice('settings are not mounted')
+      return
+    }
+    try {
+      await settings.mutate(settingsNamespace(provider.settingsNs), [
+        { op: 'unset', path: [...provider.settingsPath ?? [], 'displayName'] },
+      ])
+      this.notice(`display name cleared for ${provider.provider}`)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
+   * Write `displayName` on the stored profile.
+   * @param provider - the roster row being edited.
+   * @param value - the trimmed label.
+   */
+  private async storeProviderDisplayName(provider: ModelsProviderEntry, value: string): Promise<void> {
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) {
+      throw new Error('settings are not mounted')
+    }
+    await settings.mutate(settingsNamespace(provider.settingsNs), [
+      { op: 'set', path: [...provider.settingsPath ?? [], 'displayName'], value },
+    ])
   }
 
   /**

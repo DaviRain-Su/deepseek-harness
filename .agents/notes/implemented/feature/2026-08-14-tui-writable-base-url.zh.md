@@ -29,4 +29,5 @@ Status: implemented
 ## 相关
 
 - [TUI 可写 Models](2026-08-14-tui-writable-models.md) — 该 picker 已有的密钥写入。
+- [TUI 可写 display name](2026-08-14-tui-writable-display-name.md) — 同一 picker 上的标签写入。
 - [TUI settings 文件路径](2026-08-14-tui-settings-file-path.md) — 说出文件的 hub 行。
