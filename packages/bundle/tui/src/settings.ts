@@ -1,8 +1,8 @@
 /**
- * `/settings` overlay hub and the Permission preset sub-panel. The hub is an
- * `OverlayPicker` whose rows are sub-panels; `app.ts` dispatches a confirmed
- * row to the matching sub-panel picker. The Permission sub-panel reads the
- * mounted `PermissionPresetService` and writes a selection through `set`.
+ * `/settings` overlay hub and its sub-panels. The hub is an `OverlayPicker`
+ * whose rows are sub-panels; `app.ts` dispatches a confirmed row. Permission
+ * reads the mounted `PermissionPresetService` and writes through `set`.
+ * Models and Inventory are read-only rosters.
  * @module @deepseek-ai/dsh-tui/settings
  */
 
@@ -27,12 +27,13 @@ export interface PermissionPresetSource {
   set(session: Session, name: string): void
 }
 
-/** Hub rows for the panels shipped in 3a.
- * @returns the Appearance, Permission, and Inventory rows.
+/** Hub rows for the /settings panels.
+ * @returns the Appearance, Models, Permission, and Inventory rows.
  */
 export function settingsHubRows(): SelectItem[] {
   return [
     { value: 'theme', label: 'Appearance', description: 'Terminal theme' },
+    { value: 'models', label: 'Models', description: 'Configurable LLM providers' },
     { value: 'permission', label: 'Permission', description: 'Sandbox mode + approval policy preset' },
     { value: 'inventory', label: 'Inventory', description: 'Loaded plugins' },
   ]
@@ -67,6 +68,39 @@ export function inventoryRows(source: PluginInventorySource): SelectItem[] {
       value: entry.id,
       label: entry.name,
       ...entry.disabled ? { description: 'disabled' } : {},
+    })
+  }
+  return rows
+}
+
+/** One configurable LLM provider, as a configuration surface reads it. */
+export interface ModelsProviderEntry {
+  /** Provider route key. */
+  readonly provider: string
+  /** Human-facing display name. */
+  readonly displayName: string
+  /** Settings namespace the provider configures under. */
+  readonly settingsNs: string
+}
+
+/** The LLM configurable-provider surface; `ctx.llm` satisfies this structurally. */
+export interface ModelsSource {
+  /** Configurable providers in declaration order. */
+  providers(): Iterable<ModelsProviderEntry>
+}
+
+/**
+ * Models panel rows: one per configurable provider, in declaration order.
+ * @param source - the LLM runtime or a structural stand-in.
+ * @returns one row per configurable provider.
+ */
+export function modelsRows(source: ModelsSource): SelectItem[] {
+  const rows: SelectItem[] = []
+  for (const provider of source.providers()) {
+    rows.push({
+      value: provider.provider,
+      label: provider.displayName,
+      description: provider.settingsNs,
     })
   }
   return rows

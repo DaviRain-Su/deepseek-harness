@@ -28,7 +28,7 @@ Web UI 展示了 TUI 没有的逐会话指标：缓存命中率、计费输入�
 
 ## 后果
 
-TUI 页脚现在与 Web UI 的逐会话统计显示对齐：缓存命中率、计费输入/输出 token、解码吞吐、轮数与 context 占用，全部在分页与压缩下持久。TUI 是该投影缝的只读消费者；唯一的组合变更是把 `session-stats` 加入 TUI patch，并把三个投影包加入 bundle manifest。可变高度页脚是后续 TUI/Web 对齐面读取投影的模板——`wireStats` / `refreshStats` 是复用点。
+TUI 页脚现在与 Web UI 的逐会话统计显示对齐：缓存命中率、计费输入/输出 token、解码吞吐、轮数与 context 占用，全部在分页与压缩下持久。TUI 是该投影缝的只读消费者；唯一的组合变更是把 `session-stats` 加入 TUI patch，并把三个投影包加入 bundle manifest。状态 chip 复用 `refreshStats`（[TUI 会话状态 chip](2026-08-14-tui-session-status-chips.md)）。
 
 ## 测试
 
@@ -40,3 +40,4 @@ TUI 页脚现在与 Web UI 的逐会话统计显示对齐：缓存命中率、�
 - [Replay token-meter service](2026-07-15-replay-token-meter-service.md) — 注册它们的 `ctx.tokenMeter` 服务。
 - [Shipped interactive TUI profile](2026-08-13-shipped-tui-profile.md) — 该 chrome 所在的 bundle。
 - [TUI `/model` 档位 picker 与页脚档位显示](2026-08-15-tui-model-effort-picker.md) — 页脚标签的另一组件，此处未改动。
+- [TUI 会话状态 chip](2026-08-14-tui-session-status-chips.md) — `refreshStats` 同时绘制的强调行。

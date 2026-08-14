@@ -434,10 +434,44 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('notices a missing LLM runtime from the /settings Models panel', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('no LLM runtime is mounted')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('opens the /settings Models panel over configurable providers', async () => {
+    const test = await bench()
+    test.ctx.provide('llm', {
+      listProviders: () => [],
+      listConfigurableProviders: () => [
+        { provider: 'xai', displayName: 'xAI', settingsNs: 'xai' },
+      ],
+    } as never)
+    const { app, code } = await test.run()
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\x1b')
+    expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('reports a missing permission preset service from the settings hub', async () => {
     const test = await bench()
     const { app, code } = await test.run()
     await app.submit('/settings')
+    test.fake.type('\x1b[B')
     test.fake.type('\x1b[B')
     test.fake.type('\r')
     expect(app['overlay']).toBeUndefined()
@@ -459,6 +493,7 @@ describe('tui runtime', () => {
     const { app, code } = await test.run()
     await app.submit('/settings')
     test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
     test.fake.type('\r')
     expect(app['overlay']).toBeDefined()
     test.fake.type('\r')
@@ -474,6 +509,7 @@ describe('tui runtime', () => {
     const test = await bench()
     const { app, code } = await test.run()
     await app.submit('/settings')
+    test.fake.type('\x1b[B')
     test.fake.type('\x1b[B')
     test.fake.type('\x1b[B')
     test.fake.type('\r')
@@ -496,7 +532,8 @@ describe('tui runtime', () => {
     const { app, code } = await test.run()
     await app.submit('/settings')
     expect(app['overlay']).toBeDefined()
-    // Down to the Inventory row (Appearance=0, Permission=1, Inventory=2).
+    // Down to the Inventory row (Appearance=0, Models=1, Permission=2, Inventory=3).
+    test.fake.type('\x1b[B')
     test.fake.type('\x1b[B')
     test.fake.type('\x1b[B')
     test.fake.type('\r')
@@ -504,6 +541,68 @@ describe('tui runtime', () => {
     // Escape closes the read-only inventory view.
     test.fake.type('\x1b')
     expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices when jobs are missing or the session has none', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/help')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('/jobs  List this session')
+    await app.submit('/jobs')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('jobs are not mounted')
+    test.ctx.provide('jobs', {
+      list: () => [],
+      onJobsChanged: () => () => {},
+    } as never)
+    await app.submit('/jobs')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('no jobs in this session')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('paints plan, goal, and todo chips from session projections', async () => {
+    const test = await bench()
+    type Listener = (session: Session, key: string, value: unknown, seq: number) => void
+    let listener: Listener | undefined
+    let values: Record<string, unknown> = {}
+    test.ctx.provide('sessionProjections', {
+      snapshot: () => ({ asOfSeq: 0, values }),
+      onChanged: (next: Listener) => { listener = next; return () => { listener = undefined } },
+    } as never)
+    const { app, code } = await test.run()
+    values = {
+      plan: { active: true, pending: false },
+      goal: { goal: { objective: 'Ship it', phase: 'paused' }, roundsStarted: 1, createdAt: 0, updatedAt: 0 },
+      todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'pending' }],
+    }
+    listener!(app['agent']!.session, 'plan', values['plan'], 1)
+    const text = app['footer'].render(80).join('\n')
+    expect(text).toContain('plan')
+    expect(text).toContain('goal paused Ship it')
+    expect(text).toContain('1/2 todos')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('lists this session\'s jobs and paints a footer chip', async () => {
+    const test = await bench()
+    const jobs = [{ id: 'bash-1', label: 'sleep 10', status: 'running' as const }]
+    test.ctx.provide('jobs', {
+      list: () => jobs,
+      onJobsChanged: () => () => {},
+    } as never)
+    const { app, code } = await test.run()
+    expect(app['footer'].render(80).join('\n')).toContain('1 jobs')
+    await app.submit('/jobs')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('running · sleep 10')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()

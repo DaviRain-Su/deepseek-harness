@@ -39,7 +39,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, type PluginInventoryEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, type PluginInventoryEntry, type ModelsProviderEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, type LoginOverlayHandle } from './login.ts'
 import { createQuestionProvider } from './questions.ts'
@@ -60,6 +60,8 @@ import {
 } from './theme-settings.ts'
 import { TranscriptView, extractText } from './transcript.ts'
 import { statsLine } from './stats.ts'
+import { formatStatusChips, jobPickerItem } from './status.ts'
+import type { JobStatusRow } from './status.ts'
 // Type-only: load the SessionProjectionMap augmentation (tokenUsage /
 // contextPressure from token-meter, sessionStats from session-stats) so a
 // projection snapshot's values index to their projection types, and the
@@ -67,6 +69,10 @@ import { statsLine } from './stats.ts'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-session-stats'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-plan-mode/types'
+import type {} from '@deepseek-ai/dsh-goal/types'
+import type {} from '@deepseek-ai/dsh-tool-todo/src/types.ts'
+import type {} from '@deepseek-ai/dsh-jobs'
 
 /** Process-facing effects of one TUI run. */
 export interface TuiIo {
@@ -133,6 +139,7 @@ export class TuiApp {
   /** Shared in-flight Agent teardown so repeat callers await quiescence. */
   private handleDisposal: Promise<void> | undefined
   private disposeStatsListener: (() => void) | undefined
+  private disposeJobsListener: (() => void) | undefined
 
   /**
    * @param ctx - plugin context carrying core services and the launcher exit hook.
@@ -209,6 +216,7 @@ export class TuiApp {
     tui.addChild(transcript)
     for (const event of agent.session.events) this.applyEvent(event, true)
     this.wireStats()
+    this.wireJobs()
 
     const editor = new Editor(TUI_EDITOR_THEME)
     editor.setAutocompleteProvider(new SlashAutocomplete(this.listSlashCommands, this.listSlashSkills))
@@ -277,7 +285,7 @@ export class TuiApp {
     })
     commands.register({
       name: 'settings',
-      description: 'Open the settings hub (appearance + permission)',
+      description: 'Open the settings hub (appearance + models + permission)',
       handler: () => {
         this.openSettingsPicker()
         return { kind: 'success' as const, text: '' }
@@ -318,6 +326,14 @@ export class TuiApp {
         void this.startSessions(rawInput.trim()).catch((error: unknown) => {
           this.notice(error instanceof Error ? error.message : String(error))
         })
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'jobs',
+      description: 'List this session\'s background jobs',
+      handler: () => {
+        this.openJobsPicker()
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -548,6 +564,8 @@ export class TuiApp {
     this.hideWorking()
     this.disposeStatsListener?.()
     this.disposeStatsListener = undefined
+    this.disposeJobsListener?.()
+    this.disposeJobsListener = undefined
     this.terminal?.setProgress(false)
     this.terminal?.setTitle(subagentWindowTitle(0))
     this.tui?.stop()
@@ -568,7 +586,10 @@ export class TuiApp {
   private wireStats(): void {
     const projections = this.ctx.get('sessionProjections')
     const agent = this.agent
-    if (projections === undefined || agent === undefined) return
+    if (projections === undefined || agent === undefined) {
+      this.refreshStatus()
+      return
+    }
     const session = agent.session
     this.disposeStatsListener = projections.onChanged((changed: Session) => {
       if (changed !== session) return
@@ -614,6 +635,95 @@ export class TuiApp {
     if (projections === undefined || agent === undefined) return
     const values = projections.snapshot(agent.session).values
     this.footer.setStatsLine(statsLine(values.tokenUsage, values.contextPressure, values.sessionStats, this.preheatedWindow))
+    this.refreshStatus()
+  }
+
+  /**
+   * Subscribe to `ctx.jobs` visible-set changes and paint the first chip cut.
+   * The listener is process-wide; {@link refreshStatus} keeps the current Agent.
+   */
+  private wireJobs(): void {
+    const jobs = this.ctx.get('jobs')
+    if (jobs === undefined) {
+      this.refreshStatus()
+      return
+    }
+    this.disposeJobsListener?.()
+    this.disposeJobsListener = jobs.onJobsChanged((owner) => {
+      const agent = this.agent
+      if (owner !== undefined && owner !== agent) return
+      this.refreshStatus()
+      this.tui?.requestRender()
+    })
+    this.refreshStatus()
+  }
+
+  /**
+   * Push plan / goal / todo / job chips from the current projection cut and
+   * `ctx.jobs.list`. Missing services omit their chip.
+   */
+  private refreshStatus(): void {
+    const agent = this.agent
+    const projections = this.ctx.get('sessionProjections')
+    const values = agent === undefined || projections === undefined
+      ? undefined
+      : projections.snapshot(agent.session).values
+    const listed = agent === undefined ? [] : this.ctx.get('jobs')?.list(agent) ?? []
+    const jobs: JobStatusRow[] = listed.map(job => ({
+      id: job.id,
+      label: job.label,
+      status: job.status,
+      ...job.detail === undefined ? {} : { detail: job.detail },
+    }))
+    this.footer.setStatusLine(formatStatusChips({
+      ...values?.plan === undefined ? {} : { plan: values.plan },
+      ...values?.goal === undefined || values.goal === null ? {} : {
+        goal: { objective: values.goal.goal.objective, phase: values.goal.goal.phase },
+      },
+      ...values?.todos === undefined || values.todos === null ? {} : { todos: values.todos },
+      ...jobs.length === 0 ? {} : { jobs },
+    }))
+  }
+
+  /**
+   * Overlay of this session's visible jobs. Selecting a row notices its detail.
+   */
+  private openJobsPicker(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const jobs = this.ctx.get('jobs')
+    if (jobs === undefined) {
+      this.notice('jobs are not mounted')
+      return
+    }
+    const agent = this.agent
+    if (agent === undefined) return
+    const rows = jobs.list(agent)
+    if (rows.length === 0) {
+      this.notice('no jobs in this session')
+      return
+    }
+    const picker = new OverlayPicker(
+      'Jobs',
+      rows.map(job => jobPickerItem({
+        id: job.id,
+        label: job.label,
+        status: job.status,
+        ...job.detail === undefined ? {} : { detail: job.detail },
+      })),
+      '↑/↓ · Enter detail · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          const selected = rows.find(job => job.id === item.value)
+          this.notice(selected === undefined
+            ? item.value
+            : `${selected.status} · ${selected.label}${selected.detail === undefined ? '' : ` — ${selected.detail}`}`)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
+    this.overlay = showPicker(tui, picker)
   }
 
   /**
@@ -723,9 +833,10 @@ export class TuiApp {
 
   /**
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
-   * Appearance reuses the theme picker; Permission switches the preset through
-   * the mounted `ctx.get('permissionPresets')` service. Escape or an external hide closes the
-   * hub without opening a sub-panel.
+   * Appearance reuses the theme picker; Models lists configurable providers;
+   * Permission switches the preset through the mounted
+   * `ctx.get('permissionPresets')` service. Escape or an external hide closes
+   * the hub without opening a sub-panel.
    */
   openSettingsPicker(): void {
     const tui = this.tui
@@ -740,6 +851,7 @@ export class TuiApp {
           if (item.value === 'theme') this.openThemePicker()
           else if (item.value === 'permission') this.openPermissionPresetPicker()
           else if (item.value === 'inventory') this.openInventoryPicker()
+          else if (item.value === 'models') this.openModelsPicker()
         },
         onCancel: () => { this.hideOverlay() },
       },
@@ -790,6 +902,31 @@ export class TuiApp {
       entries.push({ id: entry.id, name: entry.options.name, disabled: entry.options.disabled ?? false })
     }
     const picker = new OverlayPicker('Inventory', inventoryRows({ entries: () => entries }), 'Loaded plugins · Esc close', {
+      onSelect: () => { this.hideOverlay() },
+      onCancel: () => { this.hideOverlay() },
+    })
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Models sub-panel: a read-only roster of the configurable LLM providers
+   * (`ctx.get('llm').listConfigurableProviders()`). Selecting a row dismisses
+   * the view; it changes nothing — editing a provider's settings is a later
+   * slice over `ctx.settings.describe`.
+   */
+  private openModelsPicker(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const llm = this.ctx.get('llm')
+    if (llm === undefined) {
+      this.notice('no LLM runtime is mounted')
+      return
+    }
+    const providers: ModelsProviderEntry[] = []
+    for (const provider of llm.listConfigurableProviders()) {
+      providers.push({ provider: provider.provider, displayName: provider.displayName, settingsNs: provider.settingsNs })
+    }
+    const picker = new OverlayPicker('Models', modelsRows({ providers: () => providers }), 'Configurable LLM providers · Esc close', {
       onSelect: () => { this.hideOverlay() },
       onCancel: () => { this.hideOverlay() },
     })

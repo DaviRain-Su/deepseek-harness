@@ -45,6 +45,7 @@ describe('SessionHeader', () => {
     expect(lines.join('\n')).toContain('/model')
     expect(lines.join('\n')).toContain('/login')
     expect(lines.join('\n')).toContain('/sessions')
+    expect(lines.join('\n')).toContain('/jobs')
     expect(lines.join('\n')).toContain('/theme')
     expect(lines.join('\n')).toContain('session session-1')
     header.setSessionId('session-2')
@@ -124,6 +125,19 @@ describe('SessionFooter', () => {
     for (const line of footer.render(20)) expect(visibleWidth(line)).toBeLessThanOrEqual(20)
     footer.setStatsLine('')
     expect(footer.render(80)).toHaveLength(2)
+  })
+
+  it('inserts a status-chip row between stats and the model row when set', () => {
+    const footer = new SessionFooter('/tmp/work/proj', 'deepseek / v4', '/tmp/work')
+    footer.setStatsLine('cache 45%')
+    footer.setStatusLine('plan · 1/2 todos')
+    const lines = footer.render(80)
+    expect(lines).toHaveLength(4)
+    expect(lines[1]).toContain('cache 45%')
+    expect(lines[2]).toContain('plan · 1/2 todos')
+    expect(lines[3]).toContain('deepseek / v4')
+    footer.setStatusLine('')
+    expect(footer.render(80)).toHaveLength(3)
   })
 })
 

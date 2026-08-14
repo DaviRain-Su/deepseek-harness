@@ -28,7 +28,7 @@ The footer is now variable-height. `SessionFooter.render` paints cwd on the firs
 
 ## Consequences
 
-The TUI footer now matches the Web UI's per-session stats display: cache-hit percent, billed input/output tokens, decode throughput, turn count, and context occupancy, all durable across paging and compaction. The TUI is a read-only consumer of the projection seam; adding `session-stats` to the TUI patch and the three projection packages to the bundle manifest is the only composition change. The variable-height footer is the template for later TUI/Web parity surfaces that read projections — `wireStats` / `refreshStats` are the reuse point.
+The TUI footer now matches the Web UI's per-session stats display: cache-hit percent, billed input/output tokens, decode throughput, turn count, and context occupancy, all durable across paging and compaction. The TUI is a read-only consumer of the projection seam; adding `session-stats` to the TUI patch and the three projection packages to the bundle manifest is the only composition change. Status chips reuse `refreshStats` ([TUI session status chips](2026-08-14-tui-session-status-chips.md)).
 
 ## Testing
 
@@ -40,3 +40,4 @@ The TUI footer now matches the Web UI's per-session stats display: cache-hit per
 - [Replay token-meter service](2026-07-15-replay-token-meter-service.md) — the `ctx.tokenMeter` service that registers them.
 - [Shipped interactive TUI profile](2026-08-13-shipped-tui-profile.md) — the bundle this chrome ships on.
 - [TUI `/model` effort picker and footer effort](2026-08-15-tui-model-effort-picker.md) — the other footer label component, unchanged here.
+- [TUI session status chips](2026-08-14-tui-session-status-chips.md) — the accent row `refreshStats` also paints.

@@ -1,7 +1,7 @@
 /**
  * Session chrome: a Pi-style header above the transcript, and an editor plus
- * two-line footer pinned to the bottom of the TTY until the transcript fills
- * the viewport.
+ * footer pinned to the bottom of the TTY until the transcript fills the
+ * viewport. The footer is cwd and model, plus optional stats and status rows.
  * @module @deepseek-ai/dsh-tui/chrome
  */
 
@@ -34,7 +34,7 @@ export class SessionHeader implements Component {
    */
   render(width: number): string[] {
     const logo = bold(fg(TUI_COLOR.accent, 'dsh'))
-    const hints = ['ctrl+c interrupt', 'ctrl+o expand', 'alt+o diff', '/model', '/login', '/sessions', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
+    const hints = ['ctrl+c interrupt', 'ctrl+o expand', 'alt+o diff', '/model', '/login', '/sessions', '/jobs', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
     const onboarding = fg(TUI_COLOR.dim, 'Ask dsh to inspect or edit this workspace.')
     const session = fg(TUI_COLOR.dim, `session ${this.sessionId}`)
     return [
@@ -51,13 +51,15 @@ export class SessionHeader implements Component {
 }
 
 /**
- * Two-line status under the editor: dim cwd, then a running hint on the left
- * and the model on the right, matching Pi's footer density.
+ * Status under the editor: dim cwd, optional durable stats, optional plan /
+ * goal / todo / job chips, then a running hint on the left and the model on
+ * the right.
  */
 export class SessionFooter implements Component {
   private busy = false
   private subagents = 0
   private statsLine = ''
+  private statusLine = ''
 
   /**
    * @param cwd - the process working directory; home is replaced with `~`.
@@ -105,10 +107,19 @@ export class SessionFooter implements Component {
   }
 
   /**
+   * Replace the plan / goal / todo / job chip line. An empty string hides
+   * the row so an idle session stays two (or three) rows.
+   * @param line - the formatted chip line, or '' to hide it.
+   */
+  setStatusLine(line: string): void {
+    this.statusLine = line
+  }
+
+  /**
    * Paint cwd on the first row, the durable stats line on the second when
-   * present, and the stats/model row on the last.
+   * present, status chips next, and the stats/model row on the last.
    * @param width - columns available to this component.
-   * @returns cwd, optional stats line, and the stats/model row.
+   * @returns cwd, optional stats, optional status chips, and the model row.
    */
   render(width: number): string[] {
     const pwd = truncateToWidth(fg(TUI_COLOR.dim, formatCwdForFooter(this.cwd, this.home)), width, Ellipsis.Ascii)
@@ -121,6 +132,7 @@ export class SessionFooter implements Component {
     const right = fg(TUI_COLOR.dim, this.model)
     const rows = [pwd]
     if (this.statsLine !== '') rows.push(truncateToWidth(fg(TUI_COLOR.dim, this.statsLine), width, Ellipsis.Ascii))
+    if (this.statusLine !== '') rows.push(truncateToWidth(fg(TUI_COLOR.accent, this.statusLine), width, Ellipsis.Ascii))
     rows.push(alignPair(left, right, width))
     return rows
   }

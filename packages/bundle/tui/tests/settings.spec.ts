@@ -7,6 +7,7 @@ import { CUSTOM_PRESET, type PresetOption } from '@deepseek-ai/dsh-permission-pr
 import { OverlayPicker } from '../src/picker.ts'
 import {
   inventoryRows,
+  modelsRows,
   permissionPresetRows,
   promptPermissionPreset,
   settingsHubRows,
@@ -54,7 +55,24 @@ function fakeSession(): Session {
 
 describe('settingsHubRows', () => {
   it('lists the shipped panels', () => {
-    expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'permission', 'inventory'])
+    expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'models', 'permission', 'inventory'])
+  })
+})
+
+describe('modelsRows', () => {
+  it('maps each configurable provider to a row in declaration order', () => {
+    const rows = modelsRows({
+      providers: () => [
+        { provider: 'openai', displayName: 'OpenAI', settingsNs: 'openai' },
+        { provider: 'xai', displayName: 'xAI', settingsNs: 'xai' },
+      ],
+    })
+    expect(rows.map(row => row.value)).toEqual(['openai', 'xai'])
+    expect(rows[0]).toEqual({ value: 'openai', label: 'OpenAI', description: 'openai' })
+  })
+
+  it('returns an empty list when nothing is configurable', () => {
+    expect(modelsRows({ providers: () => [] })).toEqual([])
   })
 })
 

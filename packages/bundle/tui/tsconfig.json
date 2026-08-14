@@ -73,6 +73,18 @@
     },
     {
       "path": "../../interaction/permission-presets"
+    },
+    {
+      "path": "../../plan/plan-mode"
+    },
+    {
+      "path": "../../goal/goal"
+    },
+    {
+      "path": "../../jobs/jobs"
+    },
+    {
+      "path": "../../todo/tool-todo"
     }
   ]
 }
