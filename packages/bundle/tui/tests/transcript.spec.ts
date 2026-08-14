@@ -160,6 +160,23 @@ describe('TranscriptView', () => {
     view.reset()
     expect(view.container.children).toHaveLength(0)
     expect(view.lastDiff()).toBeUndefined()
+    expect(view.pendingWorkLabel()).toBeUndefined()
+
+    const pending = new TranscriptView(() => ({
+      presentCall: () => ({ card: 'generic' as const, title: 'Run tests' }),
+    } as unknown as ToolDefinition))
+    expect(pending.pendingWorkLabel()).toBeUndefined()
+    pending.applyEvent(event('tool/call', {
+      turn: 1, step: 1, callId: CallId('live'), name: 'bash', arguments: '{}',
+    }), false)
+    expect(pending.pendingWorkLabel()).toBe('Run tests')
+    pending.applyEvent(event('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('live'), content: [{ type: 'text', text: 'ok' }], isError: false,
+      }),
+    }), false)
+    expect(pending.pendingWorkLabel()).toBeUndefined()
 
     const replay = new TranscriptView(() => undefined)
     replay.applyEvent(event('assistant/chunk', {

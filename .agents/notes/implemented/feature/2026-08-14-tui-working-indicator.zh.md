@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`TuiApp` 把一个 OMP `Loader` 挂到 transcript 容器的最后一个子节点，标签为 `Thinking`，spinner 用 accent 色、文案用暗色，帧来自 `TUI_SYMBOL_THEME.spinnerFrames`。submit、`step/start`、`user/message` 和 `tool/result` 会显示或把它抬到尾部（先 `removeChild` 再 `addChild`）。首个非空 `reasoning-delta` 或 `text-delta`、`tool/call`、`turn/end`、Ctrl+C 以及 `stop()` 会隐藏它（`Loader.stop` / `dispose`）。忙碌 inbox 的 pending 行也会抬一次 loader，让它留在尾部。
+`TuiApp` 把一个 OMP `Loader` 挂到 transcript 容器的最后一个子节点，标签为 `Thinking`，spinner 用 accent 色、文案用暗色，帧来自 `TUI_SYMBOL_THEME.spinnerFrames`。submit、`step/start`、`user/message` 和 `tool/result` 会显示或把它抬到尾部（先 `removeChild` 再 `addChild`）。首个非空 `reasoning-delta` 或 `text-delta`、`turn/end`、Ctrl+C 以及 `stop()` 会隐藏它（`Loader.stop` / `dispose`）。`tool/call` 会留下同一个 loader 并改标签（[工具执行期间的 working loader](2026-08-14-tui-tool-working-loader.md)）。忙碌 inbox 的 pending 行也会抬一次 loader，让它留在尾部。
 
 空闲 Enter 在 `followup()` 之前调用 `transcript.paintUser(line)`。随后同一文本的 `user/message` 被跳过（`lastPaintedUser`）。忙碌 Enter 仍走 [TUI 在运行中追加输入](2026-08-14-tui-busy-append.md) 的 pending `appending` / `queued` 行，不会再画一个气泡。
 
@@ -30,14 +30,15 @@ Status: implemented
 
 ## 影响
 
-模型沉默时 transcript 有动态；有 token 或 pending 工具卡片时让位。`Loader` 构造时就会启动定时器，因此 `stop()` 必须 `hideWorking`——包括从不 `quit` 的测试。组装态 TUI 仍没有无 key 快照；`pnpm run test:tui` 下的包测试钉住该指示器。
+模型沉默时 transcript 有动态；有 token 时让位。pending 工具调用会留下转圈（[工具执行期间的 working loader](2026-08-14-tui-tool-working-loader.md)）。`Loader` 构造时就会启动定时器，因此 `stop()` 必须 `hideWorking`——包括从不 `quit` 的测试。组装态 TUI 仍没有无 key 快照；`pnpm run test:tui` 下的包测试钉住该指示器。
 
 ## 测试
 
-`tests/transcript.spec.ts` 钉住 `paintUser` 跳过匹配的持久 `user/message`，以及 `AssistantMessageBlock.settle()`。`tests/tui.spec.ts` 断言空闲 submit 后出现 `Thinking` 与 `⠋`、首个 `text-delta` 与 Ctrl+C 时隐藏，以及忙碌时的 OSC 进度。`tests/theme.spec.ts` 钉住 `spinnerFrames`。
+`tests/transcript.spec.ts` 钉住 `paintUser` 跳过匹配的持久 `user/message`，以及 `AssistantMessageBlock.settle()`。`tests/tui.spec.ts` 断言空闲 submit 后出现 `Thinking` 与 `⠋`、首个 `text-delta` 与 Ctrl+C 时隐藏、`tool/call` 时保留并改标，以及忙碌时的 OSC 进度。`tests/theme.spec.ts` 钉住 `spinnerFrames`。
 
 ## 相关
 
+- [工具执行期间的 working loader](2026-08-14-tui-tool-working-loader.md) — 工具运行时同一个 loader 继续转。
 - [TUI 在运行中追加输入](2026-08-14-tui-busy-append.md) — 忙碌 pending 行；本笔记负责空闲乐观绘制与等待 loader。
 - [TUI bun runtime 与 pi-ai catalog](2026-08-14-tui-omp-engine-and-catalog.md) — OMP `Loader` / `spinnerFrames`，以及真正 reasoning 用的 `ThinkingBlock`。
 - [TUI subagent 运行卡片](2026-08-14-tui-subagent-run-cards.md) — 与活的 subagent 运行共享 OSC 进度。

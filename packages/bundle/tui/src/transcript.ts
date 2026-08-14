@@ -96,6 +96,17 @@ export class TranscriptView {
   }
 
   /**
+   * `presentCall` title of the newest unfinished tool card, for the working
+   * loader while that call is still running.
+   * @returns the live title, or undefined when no call is pending.
+   */
+  pendingWorkLabel(): string | undefined {
+    let label: string | undefined
+    for (const item of this.pending.values()) label = item.label
+    return label
+  }
+
+  /**
    * Paint a user bubble immediately on editor submit. A later `user/message`
    * with the same text is skipped so the durable event does not duplicate it.
    * @param text - the visible user message body.
@@ -246,7 +257,7 @@ export class TranscriptView {
     const view = presentCall(this.lookup(name), name, args)
     const lines = linesForCall(view)
     const card = new ToolCard(lines.title, lines.body, 'pending', lines.diffs)
-    this.pending.set(callId, { card, name, args, title: lines.title })
+    this.pending.set(callId, { card, name, args, title: lines.title, label: view.title })
     this.cards.push(card)
     this.container.addChild(card)
   }
@@ -286,6 +297,8 @@ interface PendingTool {
   name: string
   args: unknown
   title: string
+  /** `presentCall` title without the card marker, for the working loader. */
+  label: string
 }
 
 function parseArgs(raw: string): unknown {

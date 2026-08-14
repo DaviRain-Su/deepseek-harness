@@ -1016,8 +1016,8 @@ export class TuiApp {
   }
 
   /**
-   * Keep a braille Thinking loader at the transcript tail while the model is
-   * silent. Tokens and pending tool cards replace it; tool results bring it back.
+   * Keep a braille loader at the transcript tail while the model is silent or a
+   * tool is running. Streaming tokens replace it; a tool result brings Thinking back.
    * @param event - the live session event that just folded into the transcript.
    */
   private syncWorking(event: SessionEvent): void {
@@ -1030,7 +1030,7 @@ export class TuiApp {
       return
     }
     if (event.type === 'tool/call') {
-      this.hideWorking()
+      this.showWorking(this.transcript.pendingWorkLabel() ?? event.data.name)
       return
     }
     if (
@@ -1040,8 +1040,11 @@ export class TuiApp {
     ) this.showWorking()
   }
 
-  /** Mount or refresh the Thinking loader as the last transcript child. */
-  private showWorking(): void {
+  /**
+   * Mount or refresh the working loader as the last transcript child.
+   * @param message - `Thinking` while the model is silent; the live tool title while a call runs.
+   */
+  private showWorking(message = 'Thinking'): void {
     const tui = this.tui
     if (tui === undefined || this.stopped) return
     if (this.working === undefined) {
@@ -1049,13 +1052,13 @@ export class TuiApp {
         tui,
         text => fg(TUI_COLOR.accent, text),
         text => fg(TUI_COLOR.dim, text),
-        'Thinking',
+        message,
         TUI_SYMBOL_THEME.spinnerFrames,
       )
       this.transcript.container.addChild(this.working)
       return
     }
-    this.working.setMessage('Thinking')
+    this.working.setMessage(message)
     this.transcript.container.removeChild(this.working)
     this.transcript.container.addChild(this.working)
   }

@@ -6,7 +6,7 @@ import AgentRegistry, { Inbox, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, AgentStatus, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import { CallId, createAssistantMessage, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { CallId, createAssistantMessage, createToolResultMessage, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -353,6 +353,45 @@ describe('tui runtime', () => {
     expect(test.fake.progress).toBe(false)
     release?.()
     await agent.whenIdle()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('keeps the working loader on a pending tool call and restores Thinking after the result', async () => {
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const test = await bench({
+      afterPrompt: () => held,
+    })
+    const { app, code } = await test.run()
+    await app.submit('ask')
+    test.ctx.provide('tools', {
+      get: () => ({
+        presentCall: () => ({ card: 'generic', title: 'Run tests' }),
+      }),
+    } as never)
+    app.applyEvent({
+      type: 'tool/call', seq: 1, time: 0,
+      data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{}' },
+    } as never, false)
+    const running = app['transcript'].container.render(80).join('\n')
+    expect(running).toContain('⠋')
+    expect(running).toContain('Run tests')
+    expect(running).not.toContain('Thinking')
+    app.applyEvent({
+      type: 'tool/result', seq: 2, time: 0,
+      data: {
+        turn: 1, step: 1,
+        message: createToolResultMessage({
+          callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false,
+        }),
+      },
+    } as never, false)
+    const waiting = app['transcript'].container.render(80).join('\n')
+    expect(waiting).toContain('⠋')
+    expect(waiting).toContain('Thinking')
+    release?.()
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
