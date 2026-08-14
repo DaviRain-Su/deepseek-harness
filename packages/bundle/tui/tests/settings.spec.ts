@@ -25,6 +25,9 @@ import {
   settingsSectionRows,
   webSearchKeyRef,
   WEB_SEARCH_DEFAULT_KEY_REF,
+  positiveIntRefusal,
+  shellActionRows,
+  userNamesField,
   type PermissionPresetSource,
   type PluginInventorySource,
   type SettingsOverlayHandle,
@@ -72,6 +75,8 @@ describe('settingsHubRows', () => {
     expect(settingsHubRows().map(row => row.value)).toEqual(['theme', 'models', 'permission', 'inventory'])
     expect(settingsHubRows({ webSearch: true }).map(row => row.value))
       .toEqual(['theme', 'models', 'web-search', 'permission', 'inventory'])
+    expect(settingsHubRows({ shell: true }).map(row => row.value))
+      .toEqual(['theme', 'models', 'shell', 'permission', 'inventory'])
     expect(settingsHubRows({ presets: true }).map(row => row.value))
       .toEqual(['theme', 'models', 'permission', 'preset', 'inventory'])
     expect(settingsHubRows({ sections: true }).map(row => row.value))
@@ -194,6 +199,30 @@ describe('webSearchKeyRef', () => {
     expect(webSearchKeyRef({ apiKeyEnv: 'SEARCH_KEY' })).toBe('SEARCH_KEY')
     expect(webSearchKeyRef({})).toBe(WEB_SEARCH_DEFAULT_KEY_REF)
     expect(webSearchKeyRef(undefined)).toBe(WEB_SEARCH_DEFAULT_KEY_REF)
+  })
+})
+
+describe('positiveIntRefusal', () => {
+  it('refuses blank, zero, and non-digits, and accepts a positive integer', () => {
+    expect(positiveIntRefusal('  ', 'timeoutMs')).toBe('timeoutMs is blank')
+    expect(positiveIntRefusal('0', 'timeoutMs')).toBe('timeoutMs must be a positive integer')
+    expect(positiveIntRefusal('12.5', 'timeoutMs')).toBe('timeoutMs must be a positive integer')
+    expect(positiveIntRefusal('5000', 'timeoutMs')).toBeUndefined()
+  })
+})
+
+describe('userNamesField', () => {
+  it('is true only when the user layer owns that key', () => {
+    expect(userNamesField({ timeoutMs: 5_000 }, 'timeoutMs')).toBe(true)
+    expect(userNamesField({}, 'timeoutMs')).toBe(false)
+    expect(userNamesField(undefined, 'timeoutMs')).toBe(false)
+  })
+})
+
+describe('shellActionRows', () => {
+  it('always offers Set timeout and appends Clear when the user layer names it', () => {
+    expect(shellActionRows(false).map(row => row.value)).toEqual(['set-timeout'])
+    expect(shellActionRows(true).map(row => row.value)).toEqual(['set-timeout', 'clear-timeout'])
   })
 })
 

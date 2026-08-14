@@ -31,3 +31,4 @@ Web 的 Plugins 卡片经 `ctx.credentials` 写入 DeepSeek 搜索密钥，经 `
 - [TUI 可写 Models](2026-08-14-tui-writable-models.md) — 本路径所抄的 LLM 密钥写入。
 - [TUI 可写 base URL](2026-08-14-tui-writable-base-url.md) — 搜索端点复用的字符串 mutate。
 - [TUI settings Models 面板](2026-08-14-tui-settings-models-panel.md) — 本行所在的 hub。
+- [TUI 可写 shell timeout](2026-08-14-tui-writable-shell-timeout.md) — 同一 hub 上的单字段数字写入。

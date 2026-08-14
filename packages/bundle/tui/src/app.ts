@@ -42,7 +42,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, displayNameOf, displayNameRefusal, webSearchKeyRef, WEB_SEARCH_SETTINGS_NS, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, displayNameOf, displayNameRefusal, webSearchKeyRef, WEB_SEARCH_SETTINGS_NS, SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, userNamesField, positiveIntRefusal, shellActionRows, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
 import { presetPickerItem, sessionBlank } from './presets.ts'
@@ -871,7 +871,8 @@ export class TuiApp {
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
    * Appearance reuses the theme picker; Models lists configurable providers
    * and writes API keys, base URLs, and display names; Web search writes the
-   * DeepSeek search key and endpoint when that namespace is registered; Agent
+   * DeepSeek search key and endpoint when that namespace is registered; Shell
+   * writes `timeoutMs` when that namespace is registered; Agent
    * preset reuses `/preset` when `ctx.agentPresets` is mounted; Permission
    * switches the preset through the mounted `ctx.get('permissionPresets')`
    * service; Sections lists `ctx.settings.describe({ redactSecrets: true })`
@@ -889,6 +890,7 @@ export class TuiApp {
       : []
     const sections = typeof settings?.describe === 'function'
     const webSearch = descriptors.some(descriptor => String(descriptor.ns) === WEB_SEARCH_SETTINGS_NS)
+    const shell = descriptors.some(descriptor => String(descriptor.ns) === SHELL_SETTINGS_NS)
     const presets = this.ctx.get('agentPresets') !== undefined
     const picker = new OverlayPicker(
       'Settings',
@@ -897,6 +899,7 @@ export class TuiApp {
         sections,
         presets,
         webSearch,
+        shell,
       }),
       '↑/↓ · Enter open · Esc close',
       {
@@ -908,6 +911,7 @@ export class TuiApp {
           else if (item.value === 'inventory') this.openInventoryPicker()
           else if (item.value === 'models') void this.openModelsPicker()
           else if (item.value === 'web-search') void this.openWebSearchActions()
+          else if (item.value === 'shell') this.openShellActions()
           else if (item.value === 'sections') this.openSettingsSectionsPicker()
           else if (item.value === 'file' && documentPath !== undefined) this.notice(`settings file ${documentPath}`)
         },
@@ -1292,6 +1296,94 @@ export class TuiApp {
    */
   private webSearchSection(): unknown {
     return this.ctx.get('settings')?.get(settingsNamespace(WEB_SEARCH_SETTINGS_NS))
+  }
+
+  /**
+   * Shell timeout actions for the `shell` namespace. Clear appears only when
+   * the user layer names `timeoutMs`.
+   */
+  private openShellActions(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const settings = this.ctx.get('settings')
+    if (settings === undefined || typeof settings.describe !== 'function') {
+      this.notice('settings are not mounted')
+      return
+    }
+    const user = settings.describe({ redactSecrets: true })
+      .find(descriptor => String(descriptor.ns) === SHELL_SETTINGS_NS)?.user
+    const picker = new OverlayPicker(
+      'Shell',
+      shellActionRows(userNamesField(user, SHELL_TIMEOUT_FIELD)),
+      '↑/↓ · Enter · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          if (item.value === 'set-timeout') void this.promptShellTimeout()
+          else if (item.value === 'clear-timeout') void this.clearShellTimeout()
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Prompt for `timeoutMs` and store it through `ctx.settings.mutate`.
+   */
+  private async promptShellTimeout(): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const form = new LoginTextForm('Shell timeout (ms)', 'milliseconds', false)
+    this.overlay = tui.showOverlay(form, { anchor: 'bottom-center', width: '90%', maxHeight: '40%' })
+    try {
+      const draft = await form.wait(this.abort.signal)
+      const refusal = positiveIntRefusal(draft, SHELL_TIMEOUT_FIELD)
+      if (refusal !== undefined) {
+        this.notice(refusal)
+        return
+      }
+      await this.storeShellTimeout(Number(draft.trim()))
+      this.noticeProviderWrite('timeout stored for Shell', SHELL_SETTINGS_NS)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message !== LOGIN_CANCELLED) this.notice(message)
+    } finally {
+      this.hideOverlay()
+    }
+  }
+
+  /**
+   * Remove the user-layer `timeoutMs` so the composition default wins.
+   */
+  private async clearShellTimeout(): Promise<void> {
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) {
+      this.notice('settings are not mounted')
+      return
+    }
+    try {
+      await settings.mutate(settingsNamespace(SHELL_SETTINGS_NS), [
+        { op: 'unset', path: [SHELL_TIMEOUT_FIELD] },
+      ])
+      this.noticeProviderWrite('timeout cleared for Shell', SHELL_SETTINGS_NS)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
+   * Write `timeoutMs` on the `shell` section.
+   * @param value - a positive safe integer in milliseconds.
+   */
+  private async storeShellTimeout(value: number): Promise<void> {
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) {
+      throw new Error('settings are not mounted')
+    }
+    await settings.mutate(settingsNamespace(SHELL_SETTINGS_NS), [
+      { op: 'set', path: [SHELL_TIMEOUT_FIELD], value },
+    ])
   }
 
   /**

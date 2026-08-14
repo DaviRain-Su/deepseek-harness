@@ -669,6 +669,45 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('opens Shell from the /settings hub when that namespace is registered', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      describe: () => [{ ns: 'shell', applies: 'live', user: { timeoutMs: 5_000 } }],
+    } as never)
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\x1b')
+    expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('stores and clears the Shell timeout from /settings', async () => {
+    const test = await bench()
+    const mutate: Array<{ op: string; path: readonly string[]; value?: unknown }> = []
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      describe: () => [{ ns: 'shell', applies: 'live', user: { timeoutMs: 5_000 } }],
+      mutate: (_ns: string, ops: ReadonlyArray<{ op: string; path: readonly string[]; value?: unknown }>) => {
+        mutate.push(...ops)
+        return Promise.resolve()
+      },
+    } as never)
+    await app['storeShellTimeout'](8_000)
+    expect(mutate).toEqual([{ op: 'set', path: ['timeoutMs'], value: 8_000 }])
+    await app['clearShellTimeout']()
+    expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['timeoutMs'] })
+    expect(app['transcript'].container.render(80).join('\n')).toContain('timeout cleared for Shell')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('reports a missing permission preset service from the settings hub', async () => {
     const test = await bench()
     const { app, code } = await test.run()

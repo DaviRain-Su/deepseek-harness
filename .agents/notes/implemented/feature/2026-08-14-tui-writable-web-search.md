@@ -31,3 +31,4 @@ When `describe()` lists `web-search-deepseek`, `/settings` inserts a Web search 
 - [TUI writable Models](2026-08-14-tui-writable-models.md) — the LLM key write this path copies.
 - [TUI writable base URL](2026-08-14-tui-writable-base-url.md) — the string mutate reused for the search endpoint.
 - [TUI settings Models panel](2026-08-14-tui-settings-models-panel.md) — the hub this row sits on.
+- [TUI writable shell timeout](2026-08-14-tui-writable-shell-timeout.md) — the one-field number write on the same hub.
