@@ -397,6 +397,25 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('opens the /settings hub and dispatches Appearance to the theme picker', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/help')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('/settings  Open the settings hub')
+    expect(app['overlay']).toBeUndefined()
+    await app.submit('/settings')
+    expect(app['overlay']).toBeDefined()
+    // Confirm the first hub row (Appearance) opens the theme picker.
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    // Escape closes the theme picker.
+    test.fake.type('\x1b')
+    expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('hides the Thinking loader on the first streamed token', async () => {
     let release: (() => void) | undefined
     const held = new Promise<void>((resolve) => { release = resolve })

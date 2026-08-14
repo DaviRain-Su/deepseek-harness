@@ -1322,6 +1322,9 @@ importers:
       '@deepseek-ai/dsh-llm-oauth':
         specifier: workspace:^
         version: link:../../llm/llm-oauth
+      '@deepseek-ai/dsh-permission-presets':
+        specifier: workspace:^
+        version: link:../../interaction/permission-presets
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session

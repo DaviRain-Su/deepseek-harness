@@ -39,6 +39,8 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
+import { promptPermissionPreset, settingsHubRows } from './settings.ts'
+import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, type LoginOverlayHandle } from './login.ts'
 import { createQuestionProvider } from './questions.ts'
 import { isSwitchableSession, sessionPickerItem, type SessionPickerEntry } from './sessions.ts'
@@ -99,7 +101,7 @@ export class TuiApp {
   private tui: TUI | undefined
   private terminal: Terminal | undefined
   private selection: ModelSelectionRef | undefined
-  private overlay: OverlayHandle | ApprovalOverlayHandle | LoginOverlayHandle | undefined
+  private overlay: OverlayHandle | ApprovalOverlayHandle | LoginOverlayHandle | SettingsOverlayHandle | undefined
   /** True while the `/model` catalog overlay is the focused overlay. */
   private listingModels = false
   /** Provider ids last observed on `ctx.llm`, for addition notices. */
@@ -254,6 +256,14 @@ export class TuiApp {
       description: 'Switch the terminal theme',
       handler: () => {
         this.openThemePicker()
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'settings',
+      description: 'Open the settings hub (appearance + permission)',
+      handler: () => {
+        this.openSettingsPicker()
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -653,6 +663,51 @@ export class TuiApp {
       currentTuiThemeId(),
     )
     this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
+   * Appearance reuses the theme picker; Permission switches the preset through
+   * the mounted `ctx.permissionPresets`. Escape or an external hide closes the
+   * hub without opening a sub-panel.
+   */
+  openSettingsPicker(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined) return
+    const picker = new OverlayPicker(
+      'Settings',
+      settingsHubRows(),
+      '↑/↓ · Enter open · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          if (item.value === 'theme') this.openThemePicker()
+          else if (item.value === 'permission') this.openPermissionPresetPicker()
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Permission sub-panel: switch the preset through the mounted
+   * `ctx.permissionPresets` for the current session. A confirmed preset writes
+   * it and notices; the derived `custom` row is a no-op.
+   */
+  private openPermissionPresetPicker(): void {
+    const tui = this.tui
+    const agent = this.agent
+    if (tui === undefined || agent === undefined) return
+    void promptPermissionPreset(tui, this.ctx.permissionPresets, agent.session, {
+      onOpen: (handle) => {
+        this.hideOverlay()
+        this.overlay = handle
+      },
+      onClose: () => { this.overlay = undefined },
+    }).then((name) => {
+      if (name !== undefined) this.notice(`permission ${name}`)
+    })
   }
 
   /**
