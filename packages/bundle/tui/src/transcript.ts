@@ -6,6 +6,8 @@
 import { Container, Text } from '@oh-my-pi/pi-tui'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-compaction/types'
+import type {} from '@deepseek-ai/dsh-command-feedback'
 import type { FileDiff, ToolCallView, ToolDefinition, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import {
   AssistantMessageBlock,
@@ -230,6 +232,15 @@ export class TranscriptView {
     }
     if (event.type === 'tool/result') {
       this.completeTool(event)
+      return
+    }
+    if (event.type === 'compaction/summary') {
+      this.container.addChild(new Text(fg(TUI_COLOR.dim, 'compacted')))
+      return
+    }
+    if (event.type === 'feedback/record') {
+      const text = event.data.text.trim()
+      if (text !== '') this.container.addChild(new Text(fg(TUI_COLOR.dim, `feedback: ${text}`)))
     }
   }
 

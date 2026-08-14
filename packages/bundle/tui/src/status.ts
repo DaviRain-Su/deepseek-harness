@@ -45,6 +45,8 @@ export interface SessionStatusChips {
   todos?: readonly TodoItem[]
   /** Visible jobs for this session. */
   jobs?: readonly JobStatusRow[]
+  /** Live composed agent-preset id; omitted when the roster is absent. */
+  preset?: string
 }
 
 /**
@@ -90,6 +92,7 @@ export function formatStatusChips(status: SessionStatusChips): string {
     const live = status.jobs.filter(job => job.status === 'running' || job.status === 'stopping').length
     parts.push(live > 0 ? `${live} jobs` : `${status.jobs.length} jobs done`)
   }
+  if (status.preset !== undefined && status.preset.length > 0) parts.push(`preset ${status.preset}`)
   return parts.join(' · ')
 }
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-tui-settings-models-panel.md
-2026-08-14-tui-settings-models-panel.md: 7b416390c1b78fb0f65f954c59551741ab994b2b
-2026-08-14-tui-settings-models-panel.zh.md: 1e944291dc34370f3718acfca3d7336a9c6c3744
+2026-08-14-tui-settings-models-panel.md: 11de7b8f7902c403b647cd1995600e4253702970
+2026-08-14-tui-settings-models-panel.zh.md: 5570ff39c91eacdb034112317f07160270b6729f

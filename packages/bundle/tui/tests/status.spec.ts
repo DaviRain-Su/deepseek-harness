@@ -29,6 +29,7 @@ describe('formatStatusChips', () => {
     expect(formatStatusChips({
       jobs: [{ id: 'bash-1', label: 'sleep', status: 'completed' }],
     })).toBe('1 jobs done')
+    expect(formatStatusChips({ preset: 'standard' })).toBe('preset standard')
   })
 })
 

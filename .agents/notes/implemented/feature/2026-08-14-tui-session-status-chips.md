@@ -34,3 +34,4 @@ A live TUI session shows `plan` / `plan…`, `goal <objective>` (or `goal <phase
 - [TUI session picker](2026-08-14-tui-session-picker.md) — the overlay-command pattern `/jobs` reuses.
 - [TUI footer stats row](2026-08-15-tui-footer-stats-row.md) — the durable stats row the chips sit under.
 - [TUI /settings Models panel](2026-08-14-tui-settings-models-panel.md) — the settings-hub roster shipped beside these chips.
+- [TUI agent presets](2026-08-14-tui-agent-presets.md) — the `preset <id>` chip.

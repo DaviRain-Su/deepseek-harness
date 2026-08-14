@@ -42,3 +42,87 @@
       inject: [tuiStartup]
       config:
         resume: !!js ctx.tuiStartup.resume
+
+# The agent plane moves behind agent presets, the same split the Web surface
+# uses. Host-plane rows that register tools, prompt sections, or per-agent
+# services stay disabled here so a session does not see both the base copy
+# and the standing mount. A rosterless overlay that removes `agent-presets`
+# keeps today's host composition: `mount` is a no-op and these disables
+# should be removed with it.
+
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- id: tool-jobs
+  disabled: true
+
+- id: tool-fs
+  disabled: true
+
+- id: tool-fs-search
+  disabled: true
+
+- id: tool-str-replace-editor
+  disabled: true
+
+- id: skill-filesystem
+  disabled: true
+
+- id: tool-skill
+  disabled: true
+
+- id: tool-goal
+  disabled: true
+
+- id: plan-mode
+  disabled: true
+
+- id: compaction-basic
+  disabled: true
+
+- id: command-compact
+  disabled: true
+
+- id: tool-result-pruner
+  disabled: true
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: workflow-worker-thread
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
+- id: tool-ralph
+  disabled: true
+
+- id: agent-instructions
+  disabled: true
+
+- id: tool-todo
+  disabled: true
+
+- id: tool-web
+  disabled: true
+
+# Only the SHIPPED root is an assembly fact: `apps/cli`'s `composeProfile`
+# patches it in. The writable root is `dsh-agent-presets`' own default.
+- insert:
+    - id: agent-presets
+      name: '@deepseek-ai/dsh-agent-presets'
+      config:
+        default: standard

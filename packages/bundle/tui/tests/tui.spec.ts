@@ -14,6 +14,7 @@ import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { ProcessTerminal } from '@oh-my-pi/pi-tui'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import { apply, Config, internals, TuiApp } from '../src/index.ts'
 import { applyTuiTheme, currentTuiThemeId } from '../src/theme.ts'
 import { FakeTerminal } from './fake-terminal.ts'
@@ -452,16 +453,51 @@ describe('tui runtime', () => {
     test.ctx.provide('llm', {
       listProviders: () => [],
       listConfigurableProviders: () => [
-        { provider: 'xai', displayName: 'xAI', settingsNs: 'xai' },
+        { provider: 'xai', displayName: 'xAI', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'xai'] },
       ],
     } as never)
     const { app, code } = await test.run()
     await app.submit('/settings')
     test.fake.type('\x1b[B')
     test.fake.type('\r')
+    await Promise.resolve()
     expect(app['overlay']).toBeDefined()
     test.fake.type('\x1b')
     expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('stores an API key from the /settings Models panel', async () => {
+    const test = await bench()
+    const mutate: Array<{ path: readonly string[]; value: unknown }> = []
+    const stored: Array<{ ref: string; value: string }> = []
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      get: () => ({}),
+      mutate: (_ns: string, ops: ReadonlyArray<{ path: readonly string[]; value?: unknown }>) => {
+        for (const op of ops) {
+          if (op.value !== undefined) mutate.push({ path: op.path, value: op.value })
+        }
+        return Promise.resolve()
+      },
+    } as never)
+    test.ctx.provide('credentials', {
+      describe: () => Promise.resolve({ configured: false, writable: true }),
+      set: (ref: string, value: string) => {
+        stored.push({ ref, value })
+        return Promise.resolve()
+      },
+    } as never)
+    await app['storeProviderKey']({
+      provider: 'xai',
+      displayName: 'xAI',
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'xai'],
+    }, 'sk-test-key')
+    expect(mutate).toEqual([{ path: ['providers', 'xai', 'apiKeyEnv'], value: 'XAI_API_KEY' }])
+    expect(stored).toEqual([{ ref: 'XAI_API_KEY', value: 'sk-test-key' }])
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
@@ -559,6 +595,55 @@ describe('tui runtime', () => {
     } as never)
     await app.submit('/jobs')
     expect(app['transcript'].container.render(80).join('\n')).toContain('no jobs in this session')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices a missing agent-preset roster on /preset', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/help')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('/preset  Switch the agent preset')
+    await app.submit('/preset')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('agent presets are not mounted')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('recomposes a blank session from /preset and locks after a turn starts', async () => {
+    const test = await bench()
+    const recomposed: string[] = []
+    const mounted: Array<string | undefined> = []
+    test.ctx.provide('agentPresets', {
+      list: () => Promise.resolve([
+        { id: 'standard', name: 'Standard' },
+        { id: 'code', name: 'Code' },
+      ]),
+      resolve: () => Promise.resolve({ id: 'standard' }),
+      mount: (_ctx: unknown, id?: string) => {
+        mounted.push(id)
+        return Promise.resolve({ id: id ?? 'standard' })
+      },
+      recompose: (_ctx: unknown, id: string) => {
+        recomposed.push(id)
+        return Promise.resolve({ id })
+      },
+      composedPreset: () => 'standard',
+    } as never)
+    const { app, code } = await test.run()
+    expect(mounted).toEqual(['standard'])
+    expect(app['agent']?.session.header.agentPreset).toBe('standard')
+    await app.submit('/preset code')
+    expect(recomposed).toEqual(['code'])
+    expect(app['agent']?.session.events.some(event => event.type === 'agent-preset/selected')).toBe(true)
+    expect(app['transcript'].container.render(80).join('\n')).toContain('preset code')
+    app['agent']?.session.append('turn/start', { turn: 1 })
+    await app.submit('/preset standard')
+    expect(recomposed).toEqual(['code'])
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('this session has already started; its agent preset is fixed')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
@@ -1158,6 +1243,37 @@ describe('tui runtime', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(app['agent']!.id).toBe(current)
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('lists a top-level session from another cwd on /sessions', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const current = app['agent']!.id
+    let filters: unknown
+    test.ctx.provide('sessionQuery', {
+      filterSessions: async (next: unknown) => {
+        filters = next
+        return [
+          { header: { version: 0, id: current, createdAt: 2, cwd: process.cwd() }, live: true, persisted: true },
+          { header: { version: 0, id: 'session-other', createdAt: 1, cwd: '/other' }, live: false, persisted: true },
+        ]
+      },
+      readTitleSnapshots: async (ids: string[]) => ids.map(id => ({
+        sessionId: id,
+        status: 'fulfilled' as const,
+        value: { session: { version: 0, id, createdAt: 1 }, title: { title: id } },
+      })),
+    } as never)
+    const listed = await app['listSwitchableSessions'](test.ctx.get('sessionQuery')!)
+    expect(filters).toEqual([{ kind: 'parent', values: [null] }])
+    expect(listed.map(entry => entry.id)).toEqual([current, 'session-other'])
+    await app.submit('/sessions')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['overlay']).toBeDefined()
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()

@@ -10,17 +10,17 @@ Web 的 Models 页列出可配置的 LLM 提供方。TUI 已有 `/login`、`/log
 
 ## 决策
 
-`/settings` 在外观和权限之间增加 Models 行。确认后打开只读 picker，列出 `ctx.llm.listConfigurableProviders()`。选中一行即关闭。缺少 `ctx.llm` 时提示 `no LLM runtime is mounted`。改提供方的已存 profile 仍走 `/login` 和 `settings.yaml`。
+`/settings` 在外观和权限之间增加 Models 行。确认后打开 picker，列出 `ctx.llm.listConfigurableProviders()`。缺少 `ctx.llm` 时提示 `no LLM runtime is mounted`。存 API key 是[可写 Models](2026-08-14-tui-writable-models.md)切片。
 
 ## 考虑过的替代方案
 
-**可写的 Models 页，直接改 `ctx.settings`。** 本切片否决：凭证和 profile 表单归 Web。TUI 已通过 `/login` 写订阅凭证。名册还没出现之前再做第二套编辑器会重复那条存储路径。
+**可写的 Models 页，直接改 `ctx.settings`。** 本切片先做出名册，随后在[可写 Models](2026-08-14-tui-writable-models.md)交付。
 
 **复用 `/model`。** 否决：`/model` 列的是活路由，不是可配置提供方目录。休眠的 settings.yaml profile 仍然看不见。
 
 ## 后果
 
-`/settings` 列出外观、Models、权限和 Inventory。Models 是名册；TUI 写凭证仍走 `/login`。
+`/settings` 列出外观、Models、权限和 Inventory。Models 是名册；凭据写入见后续笔记。
 
 ## 测试
 
@@ -28,6 +28,7 @@ Web 的 Models 页列出可配置的 LLM 提供方。TUI 已有 `/login`、`/log
 
 ## 相关
 
-- [TUI 登录 overlay](2026-08-14-tui-login-overlay.md) — 本名册不替代的凭证写入。
+- [TUI 可写 Models](2026-08-14-tui-writable-models.md) — 从名册行存 API key。
+- [TUI 登录 overlay](2026-08-14-tui-login-overlay.md) — 订阅 OAuth，仍是 Login 行。
 - [TUI 活模型目录](2026-08-14-tui-live-model-catalog.md) — `/model` 列活路由，不是本目录。
 - [TUI 会话状态 chip](2026-08-14-tui-session-status-chips.md) — 同一次改动里的另一块 TUI chrome。

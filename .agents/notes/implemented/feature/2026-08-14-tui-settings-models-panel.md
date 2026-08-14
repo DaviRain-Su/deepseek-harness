@@ -10,17 +10,17 @@ Web's Models page lists configurable LLM providers. The TUI already has `/login`
 
 ## Decision
 
-`/settings` adds a Models row between Appearance and Permission. Confirming it opens a read-only picker over `ctx.llm.listConfigurableProviders()`. Selecting a row dismisses the view. A missing `ctx.llm` notices `no LLM runtime is mounted`. Editing a provider's stored profile stays on `/login` and `settings.yaml`.
+`/settings` adds a Models row between Appearance and Permission. Confirming it opens a picker over `ctx.llm.listConfigurableProviders()`. A missing `ctx.llm` notices `no LLM runtime is mounted`. Storing an API key is the [writable Models](2026-08-14-tui-writable-models.md) slice.
 
 ## Alternatives considered
 
-**A writable Models page that edits `ctx.settings`.** Rejected for this slice: the Web page owns credential and profile forms. The TUI already writes subscription credentials through `/login`. A second editor would duplicate that store path before the roster exists.
+**A writable Models page that edits `ctx.settings`.** Deferred in this slice so the roster existed first; shipped afterwards in [writable Models](2026-08-14-tui-writable-models.md).
 
 **Reuse `/model`.** Rejected: `/model` lists live routes, not the configurable-provider directory. A dormant settings.yaml profile would stay invisible.
 
 ## Consequences
 
-`/settings` lists Appearance, Models, Permission, and Inventory. Models is a roster; `/login` remains the TUI credential write.
+`/settings` lists Appearance, Models, Permission, and Inventory. Models is the roster; credential writes live on the later note.
 
 ## Testing
 
@@ -28,6 +28,7 @@ Web's Models page lists configurable LLM providers. The TUI already has `/login`
 
 ## Related
 
-- [TUI login overlay](2026-08-14-tui-login-overlay.md) — the credential write this roster does not replace.
+- [TUI writable Models](2026-08-14-tui-writable-models.md) — storing an API key from a roster row.
+- [TUI login overlay](2026-08-14-tui-login-overlay.md) — subscription OAuth, still the Login row.
 - [TUI live model catalog](2026-08-14-tui-live-model-catalog.md) — `/model` lists live routes, not this directory.
 - [TUI session status chips](2026-08-14-tui-session-status-chips.md) — the other TUI chrome slice in this change.

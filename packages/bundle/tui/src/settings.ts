@@ -2,7 +2,8 @@
  * `/settings` overlay hub and its sub-panels. The hub is an `OverlayPicker`
  * whose rows are sub-panels; `app.ts` dispatches a confirmed row. Permission
  * reads the mounted `PermissionPresetService` and writes through `set`.
- * Models and Inventory are read-only rosters.
+ * Models lists configurable providers and offers Set / Clear API key plus
+ * Login; Inventory is a read-only roster.
  * @module @deepseek-ai/dsh-tui/settings
  */
 
@@ -81,6 +82,11 @@ export interface ModelsProviderEntry {
   readonly displayName: string
   /** Settings namespace the provider configures under. */
   readonly settingsNs: string
+  /**
+   * Path from that namespace's section root to this provider's profile;
+   * empty when the whole section is the profile.
+   */
+  readonly settingsPath?: readonly string[]
 }
 
 /** The LLM configurable-provider surface; `ctx.llm` satisfies this structurally. */
@@ -102,6 +108,77 @@ export function modelsRows(source: ModelsSource): SelectItem[] {
       label: provider.displayName,
       description: provider.settingsNs,
     })
+  }
+  return rows
+}
+
+/**
+ * Conventional credential reference for a provider route. The TUI never asks
+ * for an environment-variable name; a typed key stores under this derivation
+ * and the profile records it as `apiKeyEnv` when the profile names none.
+ * @param provider - provider route id (e.g. `anthropic`, `minimax-cn`).
+ * @returns the derived reference name (e.g. `MINIMAX_CN_API_KEY`).
+ */
+export function deriveKeyRef(provider: string): string {
+  return `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
+}
+
+/** Twin of the Web Models page's printable-ASCII key rule (space excluded). */
+const LEGAL_API_KEY = /^[\x21-\x7E]+$/
+
+/**
+ * Why a typed API key cannot be stored. An empty field is not a failure —
+ * Escape cancels instead. Whitespace-only and illegal characters refuse.
+ * @param draft - the submitted key, untrimmed.
+ * @returns a notice, or `undefined` when the key can be stored.
+ */
+export function apiKeyRefusal(draft: string): string | undefined {
+  const value = draft.trim()
+  if (value.length === 0) return 'API key is blank'
+  if (!LEGAL_API_KEY.test(value)) return 'API key has illegal characters'
+  return undefined
+}
+
+/**
+ * The `apiKeyEnv` a stored profile already names.
+ * @param section - the namespace's resolved section, or undefined when unset.
+ * @param path - {@link ModelsProviderEntry.settingsPath}.
+ * @returns the reference, or undefined when the profile names none.
+ */
+export function apiKeyEnvOf(section: unknown, path: readonly string[]): string | undefined {
+  let current: unknown = section
+  for (const key of path) {
+    if (typeof current !== 'object' || current === null) return undefined
+    current = (current as Record<string, unknown>)[key]
+  }
+  if (typeof current !== 'object' || current === null) return undefined
+  const ref = (current as { apiKeyEnv?: unknown }).apiKeyEnv
+  return typeof ref === 'string' && ref.length > 0 ? ref : undefined
+}
+
+/** Actions offered after a Models roster row is confirmed. */
+export interface ProviderCredentialActions {
+  /** Show Clear API key when a writable stored value exists. */
+  readonly canClear: boolean
+  /** Show Login when this route is a loginable OAuth provider. */
+  readonly canLogin: boolean
+}
+
+/**
+ * Per-provider credential actions. Set API key is always first; Clear and
+ * Login appear only when that write path exists.
+ * @param actions - which optional rows to include.
+ * @returns rows in declaration order.
+ */
+export function providerCredentialRows(actions: ProviderCredentialActions): SelectItem[] {
+  const rows: SelectItem[] = [
+    { value: 'set-key', label: 'Set API key', description: 'Store a key for this provider' },
+  ]
+  if (actions.canClear) {
+    rows.push({ value: 'clear-key', label: 'Clear API key', description: 'Remove the stored key' })
+  }
+  if (actions.canLogin) {
+    rows.push({ value: 'login', label: 'Log in', description: 'Subscription OAuth' })
   }
   return rows
 }

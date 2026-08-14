@@ -6,10 +6,14 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import { CUSTOM_PRESET, type PresetOption } from '@deepseek-ai/dsh-permission-presets'
 import { OverlayPicker } from '../src/picker.ts'
 import {
+  apiKeyEnvOf,
+  apiKeyRefusal,
+  deriveKeyRef,
   inventoryRows,
   modelsRows,
   permissionPresetRows,
   promptPermissionPreset,
+  providerCredentialRows,
   settingsHubRows,
   type PermissionPresetSource,
   type PluginInventorySource,
@@ -73,6 +77,39 @@ describe('modelsRows', () => {
 
   it('returns an empty list when nothing is configurable', () => {
     expect(modelsRows({ providers: () => [] })).toEqual([])
+  })
+})
+
+describe('deriveKeyRef', () => {
+  it('derives a POSIX identifier from the route id', () => {
+    expect(deriveKeyRef('anthropic')).toBe('ANTHROPIC_API_KEY')
+    expect(deriveKeyRef('minimax-cn')).toBe('MINIMAX_CN_API_KEY')
+  })
+})
+
+describe('apiKeyRefusal', () => {
+  it('refuses blank and illegal keys', () => {
+    expect(apiKeyRefusal('  ')).toBe('API key is blank')
+    expect(apiKeyRefusal('has space')).toBe('API key has illegal characters')
+    expect(apiKeyRefusal('sk-ok')).toBeUndefined()
+  })
+})
+
+describe('apiKeyEnvOf', () => {
+  it('walks the settings path to the named reference', () => {
+    expect(apiKeyEnvOf({ providers: { xai: { apiKeyEnv: 'XAI_API_KEY' } } }, ['providers', 'xai']))
+      .toBe('XAI_API_KEY')
+    expect(apiKeyEnvOf({ apiKeyEnv: 'DEEPSEEK_API_KEY' }, [])).toBe('DEEPSEEK_API_KEY')
+    expect(apiKeyEnvOf({}, ['providers', 'xai'])).toBeUndefined()
+  })
+})
+
+describe('providerCredentialRows', () => {
+  it('always offers Set API key and appends Clear and Login when available', () => {
+    expect(providerCredentialRows({ canClear: false, canLogin: false }).map(row => row.value))
+      .toEqual(['set-key'])
+    expect(providerCredentialRows({ canClear: true, canLogin: true }).map(row => row.value))
+      .toEqual(['set-key', 'clear-key', 'login'])
   })
 })
 

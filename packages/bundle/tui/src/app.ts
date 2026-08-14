@@ -14,9 +14,13 @@ import {
 } from '@oh-my-pi/pi-tui'
 import type { OverlayHandle, SelectItem, Terminal } from '@oh-my-pi/pi-tui'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentHandle, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, CreateAgentOptions, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import { parseCommand } from '@deepseek-ai/dsh-commands'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-commands'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -30,7 +34,6 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import type { LlmOAuthService } from '@deepseek-ai/dsh-llm-oauth'
 import type { SessionQueryEngine, SessionRecord, SessionTitleObservationResult } from '@deepseek-ai/dsh-session-query'
-import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { SlashAutocomplete } from './autocomplete.ts'
 import type { SlashSkillItem } from './autocomplete.ts'
@@ -39,11 +42,17 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, type PluginInventoryEntry, type ModelsProviderEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, type PluginInventoryEntry, type ModelsProviderEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
-import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, type LoginOverlayHandle } from './login.ts'
+import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
+import { presetPickerItem, sessionBlank } from './presets.ts'
 import { createQuestionProvider } from './questions.ts'
-import { isSwitchableSession, sessionPickerItem, type SessionPickerEntry } from './sessions.ts'
+import {
+  isSwitchableSession,
+  sessionPickerItem,
+  sortSessionPickerEntries,
+  type SessionPickerEntry,
+} from './sessions.ts'
 import { SubagentTracker } from './subagents.ts'
 import {
   applyTuiTheme,
@@ -179,22 +188,10 @@ export class TuiApp {
     const initial = defaultModel.currentSelection()
     const selection: ModelSelectionRef = { current: initial, assembled: undefined }
     this.selection = selection
-    const setup = (agentCtx: Context): void => {
-      installModelSelection(agentCtx, selection)
-    }
     const agentOptions = { provider: initial.provider, model: initial.model }
     this.handle = this.resume === ''
-      ? await agents.create({
-        sessionId: SessionId(`session-${randomUUID()}`),
-        meta: { cwd: process.cwd() },
-        agentOptions,
-        setup,
-      })
-      : await agents.resume({
-        resumeSessionId: SessionId(this.resume),
-        agentOptions,
-        setup,
-      })
+      ? await this.createSession(agents, agentOptions)
+      : await this.resumeSession(agents, this.resume, agentOptions)
     await this.abandonIfStopped()
     if (this.stopped) return
     this.agent = this.handle.agent
@@ -334,6 +331,17 @@ export class TuiApp {
       description: 'List this session\'s background jobs',
       handler: () => {
         this.openJobsPicker()
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'preset',
+      description: 'Switch the agent preset while the session is blank',
+      input: { hint: 'preset' },
+      handler: ({ rawInput }) => {
+        void this.startPreset(rawInput.trim()).catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -659,8 +667,9 @@ export class TuiApp {
   }
 
   /**
-   * Push plan / goal / todo / job chips from the current projection cut and
-   * `ctx.jobs.list`. Missing services omit their chip.
+   * Push plan / goal / todo / job / preset chips from the current projection
+   * cut, `ctx.jobs.list`, and `ctx.agentPresets.composedPreset`. Missing
+   * services omit their chip.
    */
   private refreshStatus(): void {
     const agent = this.agent
@@ -675,6 +684,9 @@ export class TuiApp {
       status: job.status,
       ...job.detail === undefined ? {} : { detail: job.detail },
     }))
+    const preset = agent === undefined
+      ? undefined
+      : this.ctx.get('agentPresets')?.composedPreset(agent.ctx)
     this.footer.setStatusLine(formatStatusChips({
       ...values?.plan === undefined ? {} : { plan: values.plan },
       ...values?.goal === undefined || values.goal === null ? {} : {
@@ -682,6 +694,7 @@ export class TuiApp {
       },
       ...values?.todos === undefined || values.todos === null ? {} : { todos: values.todos },
       ...jobs.length === 0 ? {} : { jobs },
+      ...preset === undefined ? {} : { preset },
     }))
   }
 
@@ -833,8 +846,8 @@ export class TuiApp {
 
   /**
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
-   * Appearance reuses the theme picker; Models lists configurable providers;
-   * Permission switches the preset through the mounted
+   * Appearance reuses the theme picker; Models lists configurable providers
+   * and writes API keys; Permission switches the preset through the mounted
    * `ctx.get('permissionPresets')` service. Escape or an external hide closes
    * the hub without opening a sub-panel.
    */
@@ -909,10 +922,10 @@ export class TuiApp {
   }
 
   /**
-   * Models sub-panel: a read-only roster of the configurable LLM providers
-   * (`ctx.get('llm').listConfigurableProviders()`). Selecting a row dismisses
-   * the view; it changes nothing — editing a provider's settings is a later
-   * slice over `ctx.settings.describe`.
+   * Models sub-panel: configurable LLM providers from
+   * `ctx.get('llm').listConfigurableProviders()`. Selecting a row opens
+   * Set / Clear API key and Login; writes go through `ctx.credentials` and
+   * `ctx.settings.mutate`.
    */
   private openModelsPicker(): void {
     const tui = this.tui
@@ -924,13 +937,158 @@ export class TuiApp {
     }
     const providers: ModelsProviderEntry[] = []
     for (const provider of llm.listConfigurableProviders()) {
-      providers.push({ provider: provider.provider, displayName: provider.displayName, settingsNs: provider.settingsNs })
+      providers.push({
+        provider: provider.provider,
+        displayName: provider.displayName,
+        settingsNs: provider.settingsNs,
+        settingsPath: provider.settingsPath,
+      })
     }
     const picker = new OverlayPicker('Models', modelsRows({ providers: () => providers }), 'Configurable LLM providers · Esc close', {
-      onSelect: () => { this.hideOverlay() },
+      onSelect: (item) => {
+        this.hideOverlay()
+        const selected = providers.find(entry => entry.provider === item.value)
+        if (selected !== undefined) {
+          void this.openProviderActions(selected).catch((error: unknown) => {
+            this.notice(error instanceof Error ? error.message : String(error))
+          })
+        }
+      },
       onCancel: () => { this.hideOverlay() },
     })
     this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Overlay of Set / Clear API key and Login for one configurable provider.
+   * @param provider - the roster row that was confirmed.
+   */
+  private async openProviderActions(provider: ModelsProviderEntry): Promise<void> {
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const credentials = this.ctx.get('credentials')
+      const ref = this.providerKeyRef(provider)
+      let canClear = false
+      if (credentials !== undefined && ref !== undefined) {
+        try {
+          const info = await credentials.describe(credentialRef(ref))
+          canClear = info.configured && info.writable
+        } catch {
+          // A describe failure leaves Clear hidden; Set and Login still work.
+        }
+      }
+      const canLogin = this.ctx.get('llmOAuth')?.loginableProviders()
+        .some(candidate => candidate.id === provider.provider) ?? false
+      if (!this.canCommitOverlay(operation)) return
+      const picker = new OverlayPicker(
+        provider.displayName,
+        providerCredentialRows({ canClear, canLogin }),
+        '↑/↓ · Enter · Esc close',
+        {
+          onSelect: (item) => {
+            this.hideOverlay()
+            if (item.value === 'set-key') void this.promptProviderKey(provider)
+            else if (item.value === 'clear-key') void this.clearProviderKey(provider)
+            else if (item.value === 'login') void this.startLogin(provider.provider)
+          },
+          onCancel: () => { this.hideOverlay() },
+        },
+      )
+      this.overlay = showPicker(operation.tui, picker)
+    } finally {
+      this.finishOverlayOperation(operation)
+    }
+  }
+
+  /**
+   * Prompt for a secret API key and store it through credentials + settings.
+   * @param provider - the roster row being edited.
+   */
+  private async promptProviderKey(provider: ModelsProviderEntry): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const form = new LoginTextForm(`API key for ${provider.displayName}`, 'paste key', true)
+    this.overlay = tui.showOverlay(form, { anchor: 'bottom-center', width: '90%', maxHeight: '40%' })
+    try {
+      const draft = await form.wait(this.abort.signal)
+      const refusal = apiKeyRefusal(draft)
+      if (refusal !== undefined) {
+        this.notice(refusal)
+        return
+      }
+      await this.storeProviderKey(provider, draft.trim())
+      this.notice(`API key stored for ${provider.displayName}`)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message !== LOGIN_CANCELLED) this.notice(message)
+    } finally {
+      this.hideOverlay()
+    }
+  }
+
+  /**
+   * Remove the stored key for this provider's credential reference.
+   * @param provider - the roster row being cleared.
+   */
+  private async clearProviderKey(provider: ModelsProviderEntry): Promise<void> {
+    const credentials = this.ctx.get('credentials')
+    if (credentials === undefined) {
+      this.notice('credentials are not mounted')
+      return
+    }
+    const ref = this.providerKeyRef(provider)
+    if (ref === undefined) {
+      this.notice(`no API key reference for ${provider.displayName}`)
+      return
+    }
+    try {
+      await credentials.unset(credentialRef(ref))
+      this.notice(`API key cleared for ${provider.displayName}`)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
+   * Write `apiKeyEnv` when the profile names none, then store the secret.
+   * @param provider - the roster row being edited.
+   * @param value - the trimmed key.
+   */
+  private async storeProviderKey(provider: ModelsProviderEntry, value: string): Promise<void> {
+    const credentials = this.ctx.get('credentials')
+    if (credentials === undefined) {
+      throw new Error('credentials are not mounted')
+    }
+    const path = provider.settingsPath ?? []
+    const settings = this.ctx.get('settings')
+    const named = settings === undefined
+      ? undefined
+      : apiKeyEnvOf(settings.get(settingsNamespace(provider.settingsNs)), path)
+    const ref = named ?? deriveKeyRef(provider.provider)
+    if (settings !== undefined && named === undefined) {
+      await settings.mutate(settingsNamespace(provider.settingsNs), [
+        { op: 'set', path: [...path, 'apiKeyEnv'], value: ref },
+      ])
+    }
+    await credentials.set(credentialRef(ref), value)
+  }
+
+  /**
+   * The credential reference this provider's profile names, or the derivation.
+   * @param provider - the roster row.
+   * @returns a POSIX identifier, or undefined when settings is absent and no derivation applies.
+   */
+  private providerKeyRef(provider: ModelsProviderEntry): string | undefined {
+    const settings = this.ctx.get('settings')
+    if (settings !== undefined) {
+      const named = apiKeyEnvOf(
+        settings.get(settingsNamespace(provider.settingsNs)),
+        provider.settingsPath ?? [],
+      )
+      if (named !== undefined) return named
+    }
+    return deriveKeyRef(provider.provider)
   }
 
   /**
@@ -976,9 +1134,10 @@ export class TuiApp {
   }
 
   /**
-   * `/sessions [id]`: pick a top-level session in this cwd when omitted, then
-   * resume it in-process. The current session is flushed only after the next
-   * agent is live.
+   * `/sessions [id]`: pick a top-level session (this cwd first, then other
+   * recorded cwds) when omitted, then resume it in-process. The current
+   * session is flushed only after the next agent is live. The process cwd
+   * does not change.
    * @param sessionId - a persisted session id, or empty to open the picker.
    */
   async startSessions(sessionId: string): Promise<void> {
@@ -1003,7 +1162,7 @@ export class TuiApp {
       }
       const entries = await this.listSwitchableSessions(query)
       if (entries.length === 0) {
-        this.notice('no sessions in this workspace')
+        this.notice('no sessions')
         return
       }
       if (!this.canCommitOverlay(operation)) return
@@ -1028,23 +1187,22 @@ export class TuiApp {
   }
 
   /**
-   * Top-level sessions in this cwd, newest first, with folded titles when cheap.
+   * Top-level sessions across recorded cwds, this process cwd first, with
+   * folded titles when cheap.
    * @param query - the mounted session-query service.
    * @returns picker rows, always including the live session when it is switchable.
    */
   private async listSwitchableSessions(query: SessionQueryEngine): Promise<SessionPickerEntry[]> {
-    const cwd = process.cwd()
     const records = await query.filterSessions([
-      { kind: 'cwd', values: [cwd] },
       { kind: 'parent', values: [null] },
     ])
     const current = this.agent
     const listed = new Map<string, SessionRecord>()
     for (const record of records) {
-      if (!isSwitchableSession(record.header, cwd)) continue
+      if (!isSwitchableSession(record.header)) continue
       listed.set(record.header.id, record)
     }
-    if (current !== undefined && isSwitchableSession(current.session.header, cwd)) {
+    if (current !== undefined && isSwitchableSession(current.session.header)) {
       listed.set(current.id, {
         header: current.session.header,
         live: true,
@@ -1053,14 +1211,14 @@ export class TuiApp {
     }
     const rows = [...listed.values()]
     const titles = await this.foldSessionTitles(query, rows.map(record => record.header.id))
-    return rows.map((record) => {
+    return sortSessionPickerEntries(rows.map((record) => {
       const title = titles.get(record.header.id)
       return {
         id: record.header.id,
         header: record.header,
         ...title === undefined ? {} : { title },
       }
-    })
+    }), process.cwd())
   }
 
   /**
@@ -1091,6 +1249,153 @@ export class TuiApp {
   }
 
   /**
+   * Create a fresh session. The default preset is resolved before create so
+   * `meta.agentPreset` is snapshotted with the header.
+   * @param agents - the mounted agent factory.
+   * @param agentOptions - the live model selection.
+   */
+  private async createSession(
+    agents: { create(options: CreateAgentOptions): Promise<AgentHandle> },
+    agentOptions: { provider: string; model: string },
+  ): Promise<AgentHandle> {
+    const presets = this.ctx.get('agentPresets')
+    const presetId = presets === undefined ? undefined : (await presets.resolve()).id
+    return await agents.create({
+      sessionId: SessionId(`session-${randomUUID()}`),
+      meta: {
+        cwd: process.cwd(),
+        ...presetId === undefined ? {} : { agentPreset: presetId },
+      },
+      agentOptions,
+      setup: agentCtx => this.installAgentWorld(agentCtx, presetId),
+    })
+  }
+
+  /**
+   * Resume a persisted session under the preset its log records.
+   * @param agents - the mounted agent factory.
+   * @param sessionId - persisted session id.
+   * @param agentOptions - the live model selection, when any.
+   */
+  private async resumeSession(
+    agents: { resume(options: {
+      resumeSessionId: ReturnType<typeof SessionId>
+      agentOptions?: { provider: string; model: string }
+      setup?: (agentCtx: Context) => void | Promise<void>
+    }): Promise<AgentHandle> },
+    sessionId: string,
+    agentOptions?: { provider: string; model: string },
+  ): Promise<AgentHandle> {
+    return await agents.resume({
+      resumeSessionId: SessionId(sessionId),
+      ...agentOptions === undefined ? {} : { agentOptions },
+      setup: (agentCtx) => {
+        const recorded = agentCtx.agent === undefined
+          ? undefined
+          : resolveSessionPreset(agentCtx.agent.session)
+        return this.installAgentWorld(agentCtx, recorded)
+      },
+    })
+  }
+
+  /**
+   * Install the live model selection and, when a roster is mounted, join the
+   * agent to a standing preset. Missing `ctx.agentPresets` leaves the host
+   * composition in place.
+   * @param agentCtx - the unpublished agent scope.
+   * @param presetId - the preset to mount, or undefined for the roster default.
+   */
+  private async installAgentWorld(agentCtx: Context, presetId?: string): Promise<void> {
+    if (this.selection !== undefined) installModelSelection(agentCtx, this.selection)
+    const presets = this.ctx.get('agentPresets')
+    if (presets === undefined) return
+    await presets.mount(agentCtx, presetId)
+  }
+
+  /**
+   * `/preset [id]`: pick a mountable preset when omitted, then recompose the
+   * live agent while the session is still blank.
+   * @param presetId - a roster id, or empty to open the picker.
+   */
+  async startPreset(presetId: string): Promise<void> {
+    if (presetId.length > 0) {
+      await this.applyPreset(presetId)
+      return
+    }
+    await this.openPresetPicker()
+  }
+
+  /**
+   * Overlay of mountable presets from `ctx.agentPresets.list()`.
+   */
+  private async openPresetPicker(): Promise<void> {
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const presets = this.ctx.get('agentPresets')
+      if (presets === undefined) {
+        this.notice('agent presets are not mounted')
+        return
+      }
+      const listed = await presets.list()
+      if (listed.length === 0) {
+        this.notice('no agent presets')
+        return
+      }
+      if (!this.canCommitOverlay(operation)) return
+      const current = this.agent === undefined ? undefined : presets.composedPreset(this.agent.ctx)
+      const picker = new OverlayPicker(
+        'Agent preset',
+        listed.map(preset => presetPickerItem(preset, current)),
+        '↑/↓ · Enter switch · Esc close',
+        {
+          onSelect: (item) => {
+            this.hideOverlay()
+            void this.applyPreset(item.value)
+          },
+          onCancel: () => { this.hideOverlay() },
+        },
+        current,
+      )
+      this.overlay = showPicker(operation.tui, picker)
+    } finally {
+      this.finishOverlayOperation(operation)
+    }
+  }
+
+  /**
+   * Recompose the live agent and append `agent-preset/selected`. A started
+   * conversation is locked; a broken or unknown id notices without writing.
+   * @param presetId - the roster id to compose.
+   */
+  private async applyPreset(presetId: string): Promise<void> {
+    const presets = this.ctx.get('agentPresets')
+    if (presets === undefined) {
+      this.notice('agent presets are not mounted')
+      return
+    }
+    const agent = this.agent
+    if (agent === undefined) return
+    if (!sessionBlank(agent.session)) {
+      this.notice('this session has already started; its agent preset is fixed')
+      return
+    }
+    const found = (await presets.list()).find(preset => preset.id === presetId)
+    if (found?.broken !== undefined) {
+      this.notice(`preset ${presetId} is broken: ${found.broken}`)
+      return
+    }
+    try {
+      const preset = await presets.recompose(agent.ctx, presetId)
+      agent.session.append('agent-preset/selected', { agentPreset: preset.id })
+      this.refreshStatus()
+      this.notice(`preset ${preset.id}`)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
    * Resume `id` in-process. Resume first so a failure leaves the current Agent.
    * @param id - persisted session id.
    */
@@ -1105,18 +1410,12 @@ export class TuiApp {
       this.notice('no agent registry is mounted')
       return
     }
-    const selection = this.selection
-    const setup = (agentCtx: Context): void => {
-      if (selection !== undefined) installModelSelection(agentCtx, selection)
-    }
-    const current = selection?.current
+    const current = this.selection?.current
     let next: AgentHandle
     try {
-      next = await agents.resume({
-        resumeSessionId: SessionId(id),
-        ...current === undefined ? {} : { agentOptions: { provider: current.provider, model: current.model } },
-        setup,
-      })
+      next = await this.resumeSession(agents, id, current === undefined
+        ? undefined
+        : { provider: current.provider, model: current.model })
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error))
       return

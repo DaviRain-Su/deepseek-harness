@@ -260,6 +260,31 @@ describe('TranscriptView', () => {
     expect(history).not.toContain('[image]')
   })
 
+  it('paints compaction and feedback as dim transcript rows', () => {
+    const view = new TranscriptView(() => undefined)
+    view.applyEvent({
+      type: 'compaction/summary',
+      seq: 1,
+      time: 0,
+      data: {
+        compactionId: 'c1' as never,
+        summary: 'older turns folded',
+        shadowedRange: { start: 1, end: 2 },
+        shadowedSeqs: [1],
+        shadowedTokenCount: 10,
+      },
+    } as never, true)
+    view.applyEvent({
+      type: 'feedback/record',
+      seq: 2,
+      time: 0,
+      data: { text: 'the diff view is unreadable' },
+    } as never, true)
+    const painted = view.container.render(80).join('\n')
+    expect(painted).toContain('compacted')
+    expect(painted).toContain('feedback: the diff view is unreadable')
+  })
+
   it('uses presentCall/presentResult and survives presenter failures', () => {
     const tool = {
       presentCall: (args: unknown) => {

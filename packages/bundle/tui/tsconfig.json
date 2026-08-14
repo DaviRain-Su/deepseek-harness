@@ -24,6 +24,18 @@
       "path": "../../core/agent-default-model"
     },
     {
+      "path": "../../preset/agent-presets"
+    },
+    {
+      "path": "../../compaction/compaction"
+    },
+    {
+      "path": "../../feedback/command-feedback"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

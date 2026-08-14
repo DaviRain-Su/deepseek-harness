@@ -34,3 +34,4 @@ Web 在 composer chrome 里画出 plan、goal、todos 和后台任务。TUI 已�
 - [TUI 会话 picker](2026-08-14-tui-session-picker.md) — `/jobs` 复用的 overlay 命令模式。
 - [TUI 页脚统计行](2026-08-15-tui-footer-stats-row.md) — chip 下方的持久统计行。
 - [TUI /settings Models 面板](2026-08-14-tui-settings-models-panel.md) — 与这些 chip 一起交付的设置中心名册。
+- [TUI agent presets](2026-08-14-tui-agent-presets.md) — `preset <id>` chip。

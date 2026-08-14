@@ -46,6 +46,7 @@ describe('SessionHeader', () => {
     expect(lines.join('\n')).toContain('/login')
     expect(lines.join('\n')).toContain('/sessions')
     expect(lines.join('\n')).toContain('/jobs')
+    expect(lines.join('\n')).toContain('/preset')
     expect(lines.join('\n')).toContain('/theme')
     expect(lines.join('\n')).toContain('session session-1')
     header.setSessionId('session-2')

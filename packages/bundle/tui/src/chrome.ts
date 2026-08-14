@@ -34,7 +34,7 @@ export class SessionHeader implements Component {
    */
   render(width: number): string[] {
     const logo = bold(fg(TUI_COLOR.accent, 'dsh'))
-    const hints = ['ctrl+c interrupt', 'ctrl+o expand', 'alt+o diff', '/model', '/login', '/sessions', '/jobs', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
+    const hints = ['ctrl+c interrupt', 'ctrl+o expand', 'alt+o diff', '/model', '/login', '/sessions', '/jobs', '/preset', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
     const onboarding = fg(TUI_COLOR.dim, 'Ask dsh to inspect or edit this workspace.')
     const session = fg(TUI_COLOR.dim, `session ${this.sessionId}`)
     return [

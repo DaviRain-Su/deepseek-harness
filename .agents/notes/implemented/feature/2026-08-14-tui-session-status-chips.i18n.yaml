@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-tui-session-status-chips.md
-2026-08-14-tui-session-status-chips.md: b69762894329bc60b778b6a66378beb96a0af08d
-2026-08-14-tui-session-status-chips.zh.md: cc266f990d8541b0dff9613822fcb210ef366d2b
+2026-08-14-tui-session-status-chips.md: 40b246086820b7065f08d220ed158c51d84d7ce5
+2026-08-14-tui-session-status-chips.zh.md: 9f4bcded6b3ec76b33f90124a1e910a5b6fa142f
