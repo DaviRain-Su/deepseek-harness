@@ -177,14 +177,49 @@ export function catalogAmbientApiKeyEnv(provider: string): string | undefined {
   return findEnvKeys(provider)?.[0]
 }
 
+/** xAI id the installed pi-ai catalog has not shipped yet. */
+const GROK_46_ID = 'grok-4.6'
+
 /**
- * The installed catalog models for one route, indexed by model id.
+ * Offer models the installed pi-ai catalog is behind on, without replacing
+ * that catalog. An installed entry of the same id wins so a later pi-ai bump
+ * does not leave two descriptors.
+ * @param provider - provider route key.
+ * @param models - models `getBuiltinModels` returned for that route.
+ * @returns the installed list plus any missing supplement.
+ */
+export function supplementCatalog(
+  provider: string,
+  models: readonly Model<Api>[],
+): Model<Api>[] {
+  if (provider !== 'xai' || models.some(model => model.id === GROK_46_ID)) return [...models]
+  const grok45 = models.find(model => model.id === 'grok-4.5')
+  if (grok45 === undefined) return [...models]
+  return [...models, {
+    ...grok45,
+    id: GROK_46_ID,
+    name: 'Grok 4.6',
+    thinkingLevelMap: {
+      off: null,
+      minimal: null,
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+      xhigh: 'xhigh',
+      max: null,
+    },
+  }]
+}
+
+/**
+ * The installed catalog models for one route, plus any harness supplement
+ * the installed catalog is behind on, indexed by model id.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route pi-ai does not ship.
  */
 export function catalogModels(provider: string): Map<string, Model<Api>> {
   if (!catalogProviders().has(provider)) return new Map()
-  const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
+  const models = supplementCatalog(provider, getBuiltinModels(provider as BuiltinProvider) as Model<Api>[])
   return new Map(models.map(model => [model.id, model]))
 }
 
@@ -453,8 +488,9 @@ export interface RouteCatalog {
 
 /**
  * Materialize one route's catalog by merging the installed catalog defaults
- * under the configured entries. A route with no configured `models` serves the
- * installed catalog unchanged, which is what keeps an existing
+ * under the configured entries. A route with no configured `models` serves
+ * {@link catalogModels} — the installed catalog plus any harness supplement —
+ * which is what keeps an existing
  * `providers: { deepseek: { apiKeyEnv: … } }` profile working untouched.
  * @param request - the route-level catalog facts.
  * @returns the materialized models and the explicitly configured request caps.

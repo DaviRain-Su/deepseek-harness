@@ -13,6 +13,7 @@ import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
+import { catalogModels, supplementCatalog } from '../src/catalog.ts'
 import { resolveProfiles } from '../src/config.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
@@ -409,6 +410,17 @@ describe('catalog routes with per-model configuration', () => {
     const listed = await ctx.llm.listModels('deepseek')
     expect(listed.map(model => model.id).sort())
       .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
+  })
+
+  it('lists grok-4.6 on an xai catalog route until the installed catalog ships it', async () => {
+    const server = await mockServer([])
+    const ctx = await harness({ providers: { xai: { baseURL: server.url } } })
+
+    const listed = await ctx.llm.listModels('xai')
+    expect(listed.map(model => model.id)).toContain('grok-4.6')
+    expect(listed.find(model => model.id === 'grok-4.6')?.name).toBe('Grok 4.6')
+    expect((await ctx.llm.resolveModelInfo('xai', 'grok-4.6')).reasoning?.efforts.map(effort => effort.id))
+      .toEqual(['low', 'medium', 'high', 'xhigh'])
   })
 
   it('overrides one catalog model field and defaults the rest from the catalog', async () => {
@@ -814,6 +826,20 @@ describe('reasoning-dispatch compat switches', () => {
 
     expect((models.get(completions.id)?.compat as OpenAICompletionsCompat).supportsReasoningEffort).toBe(false)
     expect(models.get(responses.id)?.compat).toEqual(responses.compat)
+  })
+
+  it('offers grok-4.6 on xai until the installed catalog ships it', () => {
+    const listed = catalogModels('xai')
+    const grok46 = listed.get('grok-4.6')
+    expect(grok46?.name).toBe('Grok 4.6')
+    expect(grok46?.api).toBe('openai-responses')
+    expect(grok46?.contextWindow).toBe(500_000)
+    expect(getSupportedThinkingLevels(grok46!)).toEqual(['low', 'medium', 'high', 'xhigh'])
+    const already = [{ id: 'grok-4.6', name: 'Upstream' } as Model<Api>]
+    expect(supplementCatalog('xai', already)).toEqual(already)
+    expect(supplementCatalog('openai', already)).toEqual(already)
+    const without45 = [{ id: 'grok-4.3' } as Model<Api>]
+    expect(supplementCatalog('xai', without45)).toEqual(without45)
   })
 
   it('rejects a model-level switch on a protocol that has no such field', () => {
