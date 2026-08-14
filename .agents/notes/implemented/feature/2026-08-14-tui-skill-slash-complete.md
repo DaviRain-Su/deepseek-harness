@@ -10,7 +10,7 @@ OMP completes skill names on `/`. dsh already injects user-explicit `/name` toke
 
 ## Decision
 
-`SlashAutocomplete` reads commands first, then user-invocable skills from `ctx.skills.list()` (`cwd` from the live Agent header, `scope` the Agent). `isUserInvocable` is the consumer filter; `list()` stays invocation-neutral. A name that exists as a command is never also offered as a skill. Missing `skills` or a failed `list()` returns no skill items so command completions still work. The runtime does not `inject(['skills'])`. Sending `/name` still injects through the existing pre-step gesture. There is no `/skill` command.
+`SlashAutocomplete` reads commands first, then user-invocable skills from `ctx.skills.list()` (`cwd` from the live Agent header, `scope` the Agent). `isUserInvocable` is the consumer filter; `list()` stays invocation-neutral. A name that exists as a command is never also offered as a skill. Missing `skills` or a failed `list()` returns no skill items so command completions still work. The runtime does not `inject(['skills'])`. Submit sends a `/name` that is not a registered command but lists as user-invocable as a user message, so `dsh-tool-skill` can inject at pre-step; a miss still notices `unknown command`. There is no `/skill` command.
 
 ## Alternatives considered
 
@@ -24,11 +24,11 @@ OMP completes skill names on `/`. dsh already injects user-explicit `/name` toke
 
 ## Consequences
 
-Interactive `dsh` can discover user-invocable skills by typing `/`. Command names still win. File-type slash markdown commands stay out of this catalog.
+Interactive `dsh` can discover user-invocable skills by typing `/` and invoke them by submitting `/name`. Command names still win. File-type slash markdown commands stay out of this catalog.
 
 ## Testing
 
-`packages/bundle/tui/tests/autocomplete.spec.ts` pins prefix match, command-name shadowing, and an empty skill list. `tui.spec.ts` under `pnpm run test:tui` pins missing `skills`, the `isUserInvocable` filter, a thrown `list()`, and listing without an Agent. There is still no keyless assembled TUI snapshot of the editor popup.
+`packages/bundle/tui/tests/autocomplete.spec.ts` pins prefix match, command-name shadowing, and an empty skill list. `tui.spec.ts` under `pnpm run test:tui` pins missing `skills`, the `isUserInvocable` filter, a thrown `list()`, listing without an Agent, and submitting `/name` as a user message. There is still no keyless assembled TUI snapshot of the editor popup.
 
 ## Related
 

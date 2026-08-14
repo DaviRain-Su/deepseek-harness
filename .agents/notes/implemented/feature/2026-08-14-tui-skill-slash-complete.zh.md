@@ -10,7 +10,7 @@ OMP 在 `/` 上补全 skill 名称。dsh 已在 `agent/pre-step` 注入用户显
 
 ## 决策
 
-`SlashAutocomplete` 先读命令，再从 `ctx.skills.list()` 读用户可调用的 skill（`cwd` 来自当前 Agent header，`scope` 为该 Agent）。`isUserInvocable` 是消费方过滤器；`list()` 保持调用中立。已作为命令存在的名称不会再作为 skill 出现。缺少 `skills` 或 `list()` 失败时不返回 skill 项，命令补全仍可用。runtime 不 `inject(['skills'])`。发送 `/name` 仍走现有的 pre-step 注入。没有 `/skill` 命令。
+`SlashAutocomplete` 先读命令，再从 `ctx.skills.list()` 读用户可调用的 skill（`cwd` 来自当前 Agent header，`scope` 为该 Agent）。`isUserInvocable` 是消费方过滤器；`list()` 保持调用中立。已作为命令存在的名称不会再作为 skill 出现。缺少 `skills` 或 `list()` 失败时不返回 skill 项，命令补全仍可用。runtime 不 `inject(['skills'])`。提交一个未注册为命令、但目录标为用户可调用的 `/name` 会作为用户消息发出，好让 `dsh-tool-skill` 在 pre-step 注入；未命中仍提示 `unknown command`。没有 `/skill` 命令。
 
 ## 考虑过的替代方案
 
@@ -24,11 +24,11 @@ OMP 在 `/` 上补全 skill 名称。dsh 已在 `agent/pre-step` 注入用户显
 
 ## 后果
 
-交互式 `dsh` 可以通过键入 `/` 发现用户可调用的 skill。命令名称仍然优先。文件类型斜杠 markdown 命令不进入本目录。
+交互式 `dsh` 可以通过键入 `/` 发现用户可调用的 skill，并通过提交 `/name` 调用它们。命令名称仍然优先。文件类型斜杠 markdown 命令不进入本目录。
 
 ## 测试
 
-`packages/bundle/tui/tests/autocomplete.spec.ts` 钉住前缀匹配、命令名遮蔽，以及空 skill 列表。`tui.spec.ts` 在 `pnpm run test:tui` 下钉住缺少 `skills`、`isUserInvocable` 过滤、抛出的 `list()`，以及没有 Agent 时的列出。仍没有编辑器弹出层的无密钥组装 TUI 快照。
+`packages/bundle/tui/tests/autocomplete.spec.ts` 钉住前缀匹配、命令名遮蔽，以及空 skill 列表。`tui.spec.ts` 在 `pnpm run test:tui` 下钉住缺少 `skills`、`isUserInvocable` 过滤、抛出的 `list()`、没有 Agent 时的列出，以及把 `/name` 当作用户消息提交。仍没有编辑器弹出层的无密钥组装 TUI 快照。
 
 ## 相关
 

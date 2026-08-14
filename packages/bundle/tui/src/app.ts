@@ -440,6 +440,15 @@ export class TuiApp {
   }
 
   /**
+   * Whether `/name` names a user-invocable skill the pre-step gesture accepts.
+   * @param name - the parsed slash token, without a leading `/`.
+   * @returns true when {@link listSlashSkills} lists that name.
+   */
+  private async isUserInvocableSkillName(name: string): Promise<boolean> {
+    return (await this.listSlashSkills()).some(skill => skill.name === name)
+  }
+
+  /**
    * Live user-invocable skills for slash autocomplete. Missing or failing
    * discovery returns none so command completions still work.
    * @returns kebab-case names and descriptions, or an empty list.
@@ -496,7 +505,9 @@ export class TuiApp {
   }
 
   /**
-   * Handle one submitted editor line: slash commands stay in the command plane.
+   * Handle one submitted editor line: registered slash commands stay in the
+   * command plane. A `/name` that is not a command but names a user-invocable
+   * skill is a user message so `dsh-tool-skill` can inject at pre-step.
    * Idle text calls `followup()`; a running Agent receives `steer()` so the
    * line joins the current turn at the next step.
    * @param raw - the exact editor contents.
@@ -512,21 +523,28 @@ export class TuiApp {
         this.notice(`unknown command: ${line}`)
         return
       }
-      try {
-        const execution = await commands.execute(agent, line, this.abort.signal)
-        if (execution === undefined) {
-          this.notice(`unknown command: /${parsed.name}`)
-          return
+      const known = commands.list(agent).some(command => command.name === parsed.name)
+      if (known) {
+        try {
+          const execution = await commands.execute(agent, line, this.abort.signal)
+          if (execution === undefined) {
+            this.notice(`unknown command: /${parsed.name}`)
+            return
+          }
+          if (execution.result.kind === 'error') this.notice(execution.result.text)
+          else if (execution.result.text !== undefined && execution.result.text !== '') {
+            this.notice(execution.result.text)
+          }
+          if (parsed.name === 'exit' || parsed.name === 'quit') await this.quit(0)
+        } catch (error: unknown) {
+          this.notice(`command error: ${error instanceof Error ? error.message : String(error)}`)
         }
-        if (execution.result.kind === 'error') this.notice(execution.result.text)
-        else if (execution.result.text !== undefined && execution.result.text !== '') {
-          this.notice(execution.result.text)
-        }
-        if (parsed.name === 'exit' || parsed.name === 'quit') await this.quit(0)
-      } catch (error: unknown) {
-        this.notice(`command error: ${error instanceof Error ? error.message : String(error)}`)
+        return
       }
-      return
+      if (!(await this.isUserInvocableSkillName(parsed.name))) {
+        this.notice(`unknown command: /${parsed.name}`)
+        return
+      }
     }
     this.setBusy(true)
     if (agent.status !== 'running') this.transcript.paintUser(line)

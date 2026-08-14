@@ -1527,6 +1527,32 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('submits a user-invocable skill /name as a user message', async () => {
+    const test = await bench({
+      afterPrompt(session, message) { appendAssistant(session, message, 'reviewed') },
+    })
+    const { app, code } = await test.run()
+    test.ctx.provide('skills', {
+      list: () => Promise.resolve([
+        {
+          name: 'review',
+          description: 'Review the change',
+          invocation: { modelInvocable: true, userInvocable: true },
+        },
+      ]),
+    } as never)
+    await app.submit('/review the diff')
+    const painted = app['transcript'].container.render(80).join('\n')
+    expect(painted).toContain('/review the diff')
+    expect(painted).not.toContain('unknown command')
+    expect(painted).toContain('reviewed')
+    await app.submit('/unknown-skill')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('unknown command: /unknown-skill')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('notices a missing LLM runtime and an empty catalog, and ignores a second overlay', async () => {
     const test = await bench()
     const { app, code } = await test.run()
