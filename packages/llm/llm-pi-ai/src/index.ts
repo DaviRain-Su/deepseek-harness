@@ -345,7 +345,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     })
   }
   if (existingOauth !== undefined) {
-    ctx.on('llm/oauth-updated', () => refreshOauthRoutes(existingOauth))
+    ctx.on('llm/oauth-updated', () => { refreshOauthRoutes(existingOauth) })
   }
   // Late mount only: a waiting inject on a tree that never mounts the store
   // is how optional settings raced the invariant host. Product composition
@@ -353,6 +353,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.inject(['llmOAuth'], (sctx) => {
     if (existingOauth !== undefined) return
     refreshOauthRoutes(sctx.llmOAuth)
-    sctx.on('llm/oauth-updated', () => refreshOauthRoutes(sctx.llmOAuth))
+    sctx.on('llm/oauth-updated', () => { refreshOauthRoutes(sctx.llmOAuth) })
   })
 }

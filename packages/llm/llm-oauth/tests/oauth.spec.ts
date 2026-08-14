@@ -282,8 +282,10 @@ describe('llm/oauth-updated fan-out', () => {
     const ctx = await boot({ path: join(dir, '.auth.yaml'), watch: false })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.on('llm/oauth-updated', () => 1)
+    /* eslint-disable @typescript-eslint/no-misused-promises -- exercise async listener rejection containment */
     ctx.on('llm/oauth-updated', () => Promise.resolve())
     ctx.on('llm/oauth-updated', () => Promise.reject(new Error('async listener exploded')))
+    /* eslint-enable @typescript-eslint/no-misused-promises */
     await ctx.llmOAuth.modify('openai-codex', async () => OAUTH)
     await vi.waitFor(() => {
       expect(warn.mock.calls.some(call => String(call[0]).includes('listener'))).toBe(true)

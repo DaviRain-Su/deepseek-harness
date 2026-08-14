@@ -160,7 +160,7 @@ export function parseOAuthDocument(text: string, filename: string): Map<string, 
 function renderDocument(text: string | undefined, provider: string, value: Credential | undefined): string {
   const document = text === undefined ? new Document({}) : parseDocument(text)
   if (value === undefined) document.deleteIn([provider])
-  else document.setIn([provider], value as unknown as Record<string, unknown>)
+  else document.setIn([provider], value)
   return document.toString()
 }
 
@@ -326,6 +326,7 @@ export class LlmOAuthService extends Service implements CredentialStore {
         entry.oauth !== undefined)
       .map(({ provider, oauth }) => ({
         id: provider.id,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- pi-ai types non-optional but runtime omits name
         name: oauth.name ?? provider.id,
         ...oauth.loginLabel === undefined ? {} : { loginLabel: oauth.loginLabel },
       }))
@@ -350,7 +351,7 @@ export class LlmOAuthService extends Service implements CredentialStore {
       )
     }
     const credential = await oauth.login(interaction)
-    await this.modify(provider, async () => credential)
+    await this.modify(provider, () => Promise.resolve(credential))
     return credential
   }
 

@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { internals, provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { LlmOAuthService } from '@deepseek-ai/dsh-llm-oauth'
-import type { AuthInteraction, Credential } from '@earendil-works/pi-ai'
+import type { AuthInteraction, AuthPrompt, Credential } from '@earendil-works/pi-ai'
 import * as commandLogin from '../src/index.ts'
 import { ownsInvocation, showStatus } from '../src/index.ts'
 
@@ -16,7 +16,7 @@ const OAUTH: Credential = {
 
 vi.mock('../src/interaction.ts', () => ({
   terminalInteraction: () => ({
-    prompt: vi.fn(async (prompt) => {
+    prompt: vi.fn(async (prompt: AuthPrompt): Promise<string> => {
       if (prompt.type === 'select') return prompt.options[0]?.id ?? 'openai-codex'
       return 'value'
     }),
@@ -79,6 +79,7 @@ describe('apply', () => {
 
   it('logs in with an explicit provider', async () => {
     const { exits, out, oauth } = await run(['login', 'openai-codex'])
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- test assertion against a vi.fn() mock
     expect(oauth.login).toHaveBeenCalledWith('openai-codex', expect.any(Object))
     expect(out).toMatch(/Logged in to "openai-codex"/)
     expect(exits).toEqual([0])
@@ -86,6 +87,7 @@ describe('apply', () => {
 
   it('prompts for a provider when login omits one', async () => {
     const { exits, oauth } = await run(['login'])
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- test assertion against a vi.fn() mock
     expect(oauth.login).toHaveBeenCalledWith('openai-codex', expect.any(Object))
     expect(exits).toEqual([0])
   })
@@ -110,6 +112,7 @@ describe('apply', () => {
 
   it('logs out of a provider', async () => {
     const { exits, out, oauth } = await run(['logout', 'openai-codex'])
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- test assertion against a vi.fn() mock
     expect(oauth.logout).toHaveBeenCalledWith('openai-codex')
     expect(out).toMatch(/Logged out of "openai-codex"/)
     expect(exits).toEqual([0])
@@ -145,6 +148,7 @@ describe('apply', () => {
 
   it('prints help for login -h without running login', async () => {
     const { exits, oauth } = await run(['login', '-h'])
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- test assertion against a vi.fn() mock
     expect(oauth.login).not.toHaveBeenCalled()
     expect(exits).toEqual([0])
   })

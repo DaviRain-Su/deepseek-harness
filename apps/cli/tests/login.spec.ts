@@ -21,7 +21,7 @@ describe('runLoginCommand', () => {
       const text = await readFile(rootConfig, 'utf8')
       expect(text).toContain('@deepseek-ai/dsh-llm-oauth')
       expect(text).toContain('@deepseek-ai/dsh-command-login')
-      await prepare(ctx)
+      prepare(ctx)
       return ctx
     })
 
@@ -35,7 +35,7 @@ describe('runLoginCommand', () => {
     const { runLoginCommand } = await import('../src/login.ts')
     const ctx = new Context()
     boot.mockImplementation(async (_bin: string, _root: string, _patches: unknown, prepare: (host: Context) => void) => {
-      await prepare(ctx)
+      prepare(ctx)
       const host = provideCmdline.mock.calls.at(-1)?.[1] as { exit: (code: number) => void }
       host.exit(3)
       return ctx
