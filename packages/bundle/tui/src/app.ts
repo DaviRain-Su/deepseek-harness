@@ -91,6 +91,14 @@ export const internals: {
   onReady: () => {},
 }
 
+/** One asynchronous operation that may publish an overlay after an await. */
+interface OverlayOperation {
+  /** Renderer captured before the operation yielded. */
+  readonly tui: TUI
+  /** Generation invalidated when the owner hides or replaces an overlay. */
+  readonly generation: number
+}
+
 /**
  * Drive one interactive terminal session against a live Agent.
  */
@@ -102,6 +110,10 @@ export class TuiApp {
   private terminal: Terminal | undefined
   private selection: ModelSelectionRef | undefined
   private overlay: OverlayHandle | ApprovalOverlayHandle | LoginOverlayHandle | SettingsOverlayHandle | undefined
+  /** True while an async operation may still publish an overlay. */
+  private overlayOpening = false
+  /** Invalidates async overlay work when the focused surface changes. */
+  private overlayGeneration = 0
   /** True while the `/model` catalog overlay is the focused overlay. */
   private listingModels = false
   /** Provider ids last observed on `ctx.llm`, for addition notices. */
@@ -118,6 +130,8 @@ export class TuiApp {
   private subagentRunning = 0
   private stopped = false
   private exited = false
+  /** Shared in-flight Agent teardown so repeat callers await quiescence. */
+  private handleDisposal: Promise<void> | undefined
   private disposeStatsListener: (() => void) | undefined
 
   /**
@@ -220,7 +234,9 @@ export class TuiApp {
         return { consume: true }
       }
       if (matchesKey(data, 'ctrl+p') || matchesKey(data, 'alt+p')) {
-        void this.openModelPicker()
+        void this.openModelPicker().catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
         return { consume: true }
       }
       if (matchesKey(data, 'ctrl+o')) {
@@ -246,8 +262,8 @@ export class TuiApp {
     commands.register({
       name: 'model',
       description: 'Switch the session model',
-      handler: () => {
-        void this.openModelPicker()
+      handler: async () => {
+        await this.openModelPicker()
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -272,7 +288,9 @@ export class TuiApp {
       description: 'Log in to a subscription provider',
       input: { hint: 'provider' },
       handler: ({ rawInput }) => {
-        void this.startLogin(rawInput.trim())
+        void this.startLogin(rawInput.trim()).catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -281,7 +299,9 @@ export class TuiApp {
       description: 'Log out of a subscription provider',
       input: { hint: 'provider' },
       handler: ({ rawInput }) => {
-        void this.startLogout(rawInput.trim())
+        void this.startLogout(rawInput.trim()).catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -295,7 +315,9 @@ export class TuiApp {
       description: 'Switch to a persisted session',
       input: { hint: 'session' },
       handler: ({ rawInput }) => {
-        void this.startSessions(rawInput.trim())
+        void this.startSessions(rawInput.trim()).catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -429,13 +451,24 @@ export class TuiApp {
   }
 
   /**
-   * Dispose the in-flight Agent handle after an abort during create/resume.
+   * Dispose the owned Agent handle and share quiescence with repeat callers.
    */
   private async disposeHandle(): Promise<void> {
+    const inFlight = this.handleDisposal
+    if (inFlight !== undefined) {
+      await inFlight
+      return
+    }
     const handle = this.handle
     this.handle = undefined
     if (handle === undefined) return
-    await handle.dispose()
+    const disposal = handle.dispose()
+    this.handleDisposal = disposal
+    try {
+      await disposal
+    } finally {
+      if (this.handleDisposal === disposal) this.handleDisposal = undefined
+    }
   }
 
   /**
@@ -475,12 +508,17 @@ export class TuiApp {
     if (agent.status !== 'running') this.transcript.paintUser(line)
     this.showWorking()
     this.tui?.requestRender()
-    const message = createUserMessage({
-      content: [{ type: 'text', text: line }],
-      source: { kind: 'user' },
-    })
-    if (agent.status === 'running') agent.steer(message)
-    else agent.followup(message)
+    try {
+      const message = createUserMessage({
+        content: [{ type: 'text', text: line }],
+        source: { kind: 'user' },
+      })
+      if (agent.status === 'running') agent.steer(message)
+      else agent.followup(message)
+    } catch (error: unknown) {
+      this.setBusy(false)
+      this.notice(`message error: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   /**
@@ -489,15 +527,19 @@ export class TuiApp {
    */
   async quit(code: number): Promise<void> {
     this.stop()
-    if (this.exited) return
+    if (this.exited) {
+      await this.handleDisposal
+      return
+    }
     this.exited = true
     await this.terminal?.drainInput()
     const agent = this.agent
     if (agent !== undefined) await this.ctx.get('sessions')?.flush(agent.session)
+    await this.disposeHandle()
     this.io.exit(code)
   }
 
-  /** Restore the terminal without requesting process exit (fiber disposal). */
+  /** Restore the terminal without requesting process exit. */
   stop(): void {
     if (this.stopped) return
     this.stopped = true
@@ -510,6 +552,12 @@ export class TuiApp {
     this.terminal?.setTitle(subagentWindowTitle(0))
     this.tui?.stop()
     this.tui = undefined
+  }
+
+  /** Dispose the TUI and await the owned Agent's quiescent teardown. */
+  async dispose(): Promise<void> {
+    this.stop()
+    await this.disposeHandle()
   }
 
   /**
@@ -599,56 +647,64 @@ export class TuiApp {
    * resolves its reasoning efforts and either applies the switch directly or
    * opens a second picker for the effort level; the live selection is then
    * mutated and persisted through `agentDefaultModel.saveSelection`.
+   *
+   * An instance arrow so `/model` and the model keybinding keep `this` as
+   * this app after the command plane invokes the handler.
    */
-  async openModelPicker(): Promise<void> {
-    const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
-    const llm = this.ctx.get('llm')
-    if (llm === undefined) {
-      this.notice('no LLM runtime is mounted')
-      return
-    }
-    const rows: { provider: string; model: LlmModelInfo; info: LlmResolvedModelInfo | undefined }[] = []
-    for (const provider of llm.listProviders()) {
-      const models = await llm.listModels(provider.id)
-      for (const model of models) {
-        let info: LlmResolvedModelInfo | undefined
-        try { info = await llm.resolveModelInfo(provider.id, model.id) } catch { info = undefined }
-        rows.push({ provider: provider.id, model, info })
+  openModelPicker = async (): Promise<void> => {
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const llm = this.ctx.get('llm')
+      if (llm === undefined) {
+        this.notice('no LLM runtime is mounted')
+        return
       }
-    }
-    const items: SelectItem[] = rows.map(row => ({
-      value: modelValue(row.provider, row.model.id),
-      label: `${row.provider} / ${row.model.id}`,
-      description: modelItemDescription(row.model, row.info),
-    }))
-    if (items.length === 0) {
-      this.notice('no LLM providers registered')
-      return
-    }
-    const current = this.selection?.current
-    const selectedValue = current === undefined ? undefined : modelValue(current.provider, current.model)
-    const picker = new OverlayPicker(
-      'Model',
-      items,
-      '↑/↓ · Enter switch · Esc close',
-      {
-        onSelect: (item) => {
-          this.hideOverlay()
-          void this.chooseEffortThenApply(item)
+      const rows: { provider: string; model: LlmModelInfo; info: LlmResolvedModelInfo | undefined }[] = []
+      for (const provider of llm.listProviders()) {
+        const models = await llm.listModels(provider.id)
+        for (const model of models) {
+          let info: LlmResolvedModelInfo | undefined
+          try { info = await llm.resolveModelInfo(provider.id, model.id) } catch { info = undefined }
+          rows.push({ provider: provider.id, model, info })
+        }
+      }
+      const items: SelectItem[] = rows.map(row => ({
+        value: modelValue(row.provider, row.model.id),
+        label: `${row.provider} / ${row.model.id}`,
+        description: modelItemDescription(row.model, row.info),
+      }))
+      if (items.length === 0) {
+        this.notice('no LLM providers registered')
+        return
+      }
+      if (!this.canCommitOverlay(operation)) return
+      const current = this.selection?.current
+      const selectedValue = current === undefined ? undefined : modelValue(current.provider, current.model)
+      const picker = new OverlayPicker(
+        'Model',
+        items,
+        '↑/↓ · Enter switch · Esc close',
+        {
+          onSelect: (item) => {
+            this.hideOverlay()
+            void this.chooseEffortThenApply(item)
+          },
+          onCancel: () => { this.hideOverlay() },
         },
-        onCancel: () => { this.hideOverlay() },
-      },
-      selectedValue,
-    )
-    this.listingModels = true
-    this.overlay = showPicker(tui, picker)
+        selectedValue,
+      )
+      this.listingModels = true
+      this.overlay = showPicker(operation.tui, picker)
+    } finally {
+      this.finishOverlayOperation(operation)
+    }
   }
 
   /** Open `/theme` over builtins and `$DSH_HOME/themes/*.json`. */
   openThemePicker(): void {
     const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
     const picker = new OverlayPicker(
       'Theme',
       listTuiThemeItems(),
@@ -668,12 +724,12 @@ export class TuiApp {
   /**
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
    * Appearance reuses the theme picker; Permission switches the preset through
-   * the mounted `ctx.permissionPresets`. Escape or an external hide closes the
+   * the mounted `ctx.get('permissionPresets')` service. Escape or an external hide closes the
    * hub without opening a sub-panel.
    */
   openSettingsPicker(): void {
     const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
     const picker = new OverlayPicker(
       'Settings',
       settingsHubRows(),
@@ -693,14 +749,19 @@ export class TuiApp {
 
   /**
    * Permission sub-panel: switch the preset through the mounted
-   * `ctx.permissionPresets` for the current session. A confirmed preset writes
+   * `ctx.get('permissionPresets')` service for the current session. A confirmed preset writes
    * it and notices; the derived `custom` row is a no-op.
    */
   private openPermissionPresetPicker(): void {
     const tui = this.tui
     const agent = this.agent
     if (tui === undefined || agent === undefined) return
-    void promptPermissionPreset(tui, this.ctx.permissionPresets, agent.session, {
+    const presets = this.ctx.get('permissionPresets')
+    if (presets === undefined) {
+      this.notice('permission presets are not mounted')
+      return
+    }
+    void promptPermissionPreset(tui, presets, agent.session, {
       onOpen: (handle) => {
         this.hideOverlay()
         this.overlay = handle
@@ -713,14 +774,19 @@ export class TuiApp {
 
   /**
    * Inventory sub-panel: a read-only view of the loader's mounted plugin
-   * entries (`ctx.loader.entries()`). Selecting a row dismisses the view; it
+   * entries (`ctx.get('loader')`). Selecting a row dismisses the view; it
    * changes nothing.
    */
   private openInventoryPicker(): void {
     const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const loader = this.ctx.get('loader')
+    if (loader === undefined) {
+      this.notice('loader is not mounted')
+      return
+    }
     const entries: PluginInventoryEntry[] = []
-    for (const entry of this.ctx.loader.entries()) {
+    for (const entry of loader.entries()) {
       entries.push({ id: entry.id, name: entry.options.name, disabled: entry.options.disabled ?? false })
     }
     const picker = new OverlayPicker('Inventory', inventoryRows({ entries: () => entries }), 'Loaded plugins · Esc close', {
@@ -790,33 +856,38 @@ export class TuiApp {
    * Overlay of switchable sessions from `ctx.sessionQuery`.
    */
   private async openSessionPicker(): Promise<void> {
-    const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
-    const query = this.ctx.get('sessionQuery')
-    if (query === undefined) {
-      this.notice('session listing is not mounted')
-      return
-    }
-    const entries = await this.listSwitchableSessions(query)
-    if (entries.length === 0) {
-      this.notice('no sessions in this workspace')
-      return
-    }
-    const currentId = this.agent?.id
-    const picker = new OverlayPicker(
-      'Sessions',
-      entries.map(entry => sessionPickerItem(entry, currentId)),
-      '↑/↓ · Enter switch · Esc close',
-      {
-        onSelect: (item) => {
-          this.hideOverlay()
-          void this.switchSession(item.value)
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const query = this.ctx.get('sessionQuery')
+      if (query === undefined) {
+        this.notice('session listing is not mounted')
+        return
+      }
+      const entries = await this.listSwitchableSessions(query)
+      if (entries.length === 0) {
+        this.notice('no sessions in this workspace')
+        return
+      }
+      if (!this.canCommitOverlay(operation)) return
+      const currentId = this.agent?.id
+      const picker = new OverlayPicker(
+        'Sessions',
+        entries.map(entry => sessionPickerItem(entry, currentId)),
+        '↑/↓ · Enter switch · Esc close',
+        {
+          onSelect: (item) => {
+            this.hideOverlay()
+            void this.switchSession(item.value)
+          },
+          onCancel: () => { this.hideOverlay() },
         },
-        onCancel: () => { this.hideOverlay() },
-      },
-      currentId,
-    )
-    this.overlay = showPicker(tui, picker)
+        currentId,
+      )
+      this.overlay = showPicker(operation.tui, picker)
+    } finally {
+      this.finishOverlayOperation(operation)
+    }
   }
 
   /**
@@ -956,7 +1027,7 @@ export class TuiApp {
    */
   private openLoginPicker(oauth: LlmOAuthService): void {
     const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
     const candidates = oauth.loginableProviders()
     if (candidates.length === 0) {
       this.notice('no subscription login providers')
@@ -986,30 +1057,35 @@ export class TuiApp {
    * @param oauth - the mounted store.
    */
   private async openLogoutPicker(oauth: LlmOAuthService): Promise<void> {
-    const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
-    const stored = await oauth.list()
-    if (stored.length === 0) {
-      this.notice('no subscription logins')
-      return
-    }
-    const names = new Map(oauth.loginableProviders().map(candidate => [candidate.id, candidate.name]))
-    const picker = new OverlayPicker(
-      'Log out',
-      stored.map(entry => ({
-        value: entry.providerId,
-        label: names.get(entry.providerId) ?? entry.providerId,
-      })),
-      '↑/↓ · Enter logout · Esc close',
-      {
-        onSelect: (item) => {
-          this.hideOverlay()
-          void this.runLogout(oauth, item.value)
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const stored = await oauth.list()
+      if (stored.length === 0) {
+        this.notice('no subscription logins')
+        return
+      }
+      if (!this.canCommitOverlay(operation)) return
+      const names = new Map(oauth.loginableProviders().map(candidate => [candidate.id, candidate.name]))
+      const picker = new OverlayPicker(
+        'Log out',
+        stored.map(entry => ({
+          value: entry.providerId,
+          label: names.get(entry.providerId) ?? entry.providerId,
+        })),
+        '↑/↓ · Enter logout · Esc close',
+        {
+          onSelect: (item) => {
+            this.hideOverlay()
+            void this.runLogout(oauth, item.value)
+          },
+          onCancel: () => { this.hideOverlay() },
         },
-        onCancel: () => { this.hideOverlay() },
-      },
-    )
-    this.overlay = showPicker(tui, picker)
+      )
+      this.overlay = showPicker(operation.tui, picker)
+    } finally {
+      this.finishOverlayOperation(operation)
+    }
   }
 
   /**
@@ -1027,7 +1103,7 @@ export class TuiApp {
       },
       onClose: () => { this.overlay = undefined },
       onNotice: (text) => { this.notice(text) },
-    })
+    }, this.abort.signal)
     try {
       await oauth.login(provider, interaction)
       this.notice(`logged in to ${provider}`)
@@ -1059,7 +1135,7 @@ export class TuiApp {
    */
   openDiffOverlay(): void {
     const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
     const view = this.transcript.lastDiff()
     if (view === undefined) {
       this.notice('no file diff to open')
@@ -1148,7 +1224,36 @@ export class TuiApp {
     loader.dispose()
   }
 
+  /** Reserve one async overlay operation until it publishes or is invalidated. */
+  private readonly beginOverlayOperation = (): OverlayOperation | undefined => {
+    const tui = this.tui
+    if (tui === undefined || this.stopped || this.overlay !== undefined || this.overlayOpening) return undefined
+    this.overlayOpening = true
+    return { tui, generation: ++this.overlayGeneration }
+  }
+
+  /** Whether an async overlay may still publish into its captured renderer. */
+  private readonly canCommitOverlay = (operation: OverlayOperation): boolean => {
+    return !this.stopped
+      && this.tui === operation.tui
+      && this.overlay === undefined
+      && this.overlayOpening
+      && this.overlayGeneration === operation.generation
+  }
+
+  /** Release the async reservation after an operation settles. */
+  private readonly finishOverlayOperation = (operation: OverlayOperation): void => {
+    if (this.overlayGeneration === operation.generation) this.overlayOpening = false
+  }
+
+  /** Invalidate pending overlay work when the focused surface changes. */
+  private readonly invalidateOverlayOperation = (): void => {
+    this.overlayOpening = false
+    this.overlayGeneration += 1
+  }
+
   private hideOverlay(): void {
+    this.invalidateOverlayOperation()
     this.overlay?.hide()
     this.overlay = undefined
     this.listingModels = false
@@ -1215,29 +1320,36 @@ export class TuiApp {
   private async chooseEffortThenApply(item: SelectItem): Promise<void> {
     const parsed = parseModelValue(item.value)
     if (parsed === undefined || this.selection === undefined) return
-    const llm = this.ctx.get('llm')
-    let efforts: readonly LlmReasoningEffortInfo[] | undefined
-    let defaultEffort: ReasoningEffortId | undefined
-    if (llm !== undefined) {
-      try {
-        const info = await llm.resolveModelInfo(parsed.provider, parsed.model)
-        if (info.reasoning !== undefined && info.reasoning.efforts.length > 0) {
-          efforts = info.reasoning.efforts
-          defaultEffort = info.reasoning.defaultEffort
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const llm = this.ctx.get('llm')
+      let efforts: readonly LlmReasoningEffortInfo[] | undefined
+      let defaultEffort: ReasoningEffortId | undefined
+      if (llm !== undefined) {
+        try {
+          const info = await llm.resolveModelInfo(parsed.provider, parsed.model)
+          if (info.reasoning !== undefined && info.reasoning.efforts.length > 0) {
+            efforts = info.reasoning.efforts
+            defaultEffort = info.reasoning.defaultEffort
+          }
+        } catch {
+          // Apply without an effort; the request path refuses if unsupported.
         }
-      } catch {
-        // Apply without an effort; the request path refuses if unsupported.
       }
+      if (!this.canCommitOverlay(operation)) return
+      if (efforts === undefined || efforts.length === 0) {
+        await this.applyModelSelection({ provider: parsed.provider, model: parsed.model })
+        return
+      }
+      const current = this.selection.current
+      const currentEffort = current !== undefined
+        && current.provider === parsed.provider && current.model === parsed.model
+        ? current.reasoningEffort : undefined
+      this.openEffortPicker(operation, parsed, efforts, currentEffort ?? defaultEffort)
+    } finally {
+      this.finishOverlayOperation(operation)
     }
-    if (efforts === undefined || efforts.length === 0) {
-      await this.applyModelSelection({ provider: parsed.provider, model: parsed.model })
-      return
-    }
-    const current = this.selection.current
-    const currentEffort = current !== undefined
-      && current.provider === parsed.provider && current.model === parsed.model
-      ? current.reasoningEffort : undefined
-    this.openEffortPicker(parsed, efforts, currentEffort ?? defaultEffort)
   }
 
   /**
@@ -1248,12 +1360,12 @@ export class TuiApp {
    * @param preselected - the effort id to highlight, when any.
    */
   private openEffortPicker(
+    operation: OverlayOperation,
     parsed: { provider: string; model: string },
     efforts: readonly LlmReasoningEffortInfo[],
     preselected: ReasoningEffortId | undefined,
   ): void {
-    const tui = this.tui
-    if (tui === undefined || this.overlay !== undefined) return
+    if (!this.canCommitOverlay(operation)) return
     const items: SelectItem[] = efforts.map(effort => ({
       value: String(effort.id),
       label: effort.name,
@@ -1276,7 +1388,7 @@ export class TuiApp {
       },
       preselected === undefined ? undefined : String(preselected),
     )
-    this.overlay = showPicker(tui, picker)
+    this.overlay = showPicker(operation.tui, picker)
   }
 
   /**
@@ -1286,7 +1398,7 @@ export class TuiApp {
    * @param next - the resolved provider, model, and optional reasoning effort.
    */
   private async applyModelSelection(next: ModelSelection): Promise<void> {
-    if (this.selection === undefined) return
+    if (this.selection === undefined || this.stopped) return
     this.selection.current = next
     this.footer.setModel(modelLabel(next))
     void this.preheatContextWindow(next)

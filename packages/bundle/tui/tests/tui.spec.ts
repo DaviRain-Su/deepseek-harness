@@ -55,9 +55,11 @@ function appendAssistant(session: Session, message: UserMessage, text: string): 
 async function bench(script: Script = {}): Promise<{
   ctx: Context
   fake: FakeTerminal
+  agentDisposals(): number
   run(resume?: string): Promise<{ app: TuiApp; code: Promise<number>; err: string }>
 }> {
   const ctx = new Context()
+  let agentDisposals = 0
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(CommandRuntime)
@@ -118,7 +120,7 @@ async function bench(script: Script = {}): Promise<{
     await options.setup?.(agentCtx)
     script.before?.(session)
     ctx.agents.register(agent)
-    return { agent, dispose: () => Promise.resolve() }
+    return { agent, dispose: async () => { agentDisposals += 1 } }
   }
   ctx.agents.setFactory({
     createAgent,
@@ -133,6 +135,7 @@ async function bench(script: Script = {}): Promise<{
   return {
     ctx,
     fake,
+    agentDisposals: () => agentDisposals,
     run: async (resume = '') => {
       let err = ''
       internals.stderr = { write: (chunk: string) => { err += chunk; return true } }
@@ -220,6 +223,7 @@ describe('tui runtime', () => {
     await app.quit(0)
     expect(await code).toBe(0)
     expect(test.fake.isStarted).toBe(false)
+    expect(test.agentDisposals()).toBe(1)
     await test.ctx.fiber.dispose()
   })
 
@@ -358,6 +362,20 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('clears busy state when Agent admission throws', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const agent = app['agent'] as Agent
+    agent.followup = () => { throw new Error('admission failed') }
+    await app.submit('ask')
+    expect(app['busy']).toBe(false)
+    expect(app['transcript'].container.render(80).join('\n')).toContain('message error: admission failed')
+    expect(app['working']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('keeps the working loader on a pending tool call and restores Thinking after the result', async () => {
     let release: (() => void) | undefined
     const held = new Promise<void>((resolve) => { release = resolve })
@@ -411,6 +429,56 @@ describe('tui runtime', () => {
     // Escape closes the theme picker.
     test.fake.type('\x1b')
     expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('reports a missing permission preset service from the settings hub', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('permission presets are not mounted')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('switches a permission preset through the settings hub', async () => {
+    const test = await bench()
+    const calls: string[] = []
+    test.ctx.provide('permissionPresets', {
+      names: ['read-only', 'workspace-write'],
+      current: () => 'read-only',
+      optionOf: (name: string) => ({ value: name, name }),
+      set: (_session: Session, name: string) => { calls.push(name) },
+    } as never)
+    const { app, code } = await test.run()
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    await Promise.resolve()
+    expect(calls).toEqual(['read-only'])
+    expect(app['transcript'].container.render(80).join('\n')).toContain('permission read-only')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices a missing loader when opening the /settings Inventory panel', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('loader is not mounted')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
@@ -572,6 +640,7 @@ describe('tui runtime', () => {
     expect(test.fake.isStarted).toBe(true)
     await test.ctx.fiber.dispose()
     expect(test.fake.isStarted).toBe(false)
+    expect(test.agentDisposals()).toBe(1)
     const winner = await Promise.race([
       code.then(() => 'exited' as const),
       new Promise<'pending'>((resolve) => {
@@ -621,6 +690,42 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('serializes asynchronous model overlay openings', async () => {
+    const test = await bench()
+    let release: ((models: readonly { provider: string; id: string; name: string }[]) => void) | undefined
+    const pending = new Promise<readonly { provider: string; id: string; name: string }[]>((resolve) => { release = resolve })
+    test.ctx.provide('llm', {
+      listProviders: () => [{ id: 'openai', name: 'openai' }],
+      listModels: async () => pending,
+    } as never)
+    const { app, code } = await test.run()
+    const first = app.openModelPicker()
+    const second = app.openModelPicker()
+    release?.([{ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }])
+    await Promise.all([first, second])
+    expect(app['overlay']).toBeDefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('does not publish an asynchronous overlay after TUI disposal', async () => {
+    const test = await bench()
+    let release: ((models: readonly { provider: string; id: string; name: string }[]) => void) | undefined
+    const pending = new Promise<readonly { provider: string; id: string; name: string }[]>((resolve) => { release = resolve })
+    test.ctx.provide('llm', {
+      listProviders: () => [{ id: 'openai', name: 'openai' }],
+      listModels: async () => pending,
+    } as never)
+    const { app } = await test.run()
+    const opening = app.openModelPicker()
+    app.stop()
+    release?.([{ provider: 'openai', id: 'gpt-4.1', name: 'GPT 4.1' }])
+    await opening
+    expect(app['overlay']).toBeUndefined()
+    await test.ctx.fiber.dispose()
+  })
+
   it('opens /model over ctx.llm, switches the live selection, and updates the footer', async () => {
     const test = await bench()
     test.ctx.provide('llm', {
@@ -630,7 +735,7 @@ describe('tui runtime', () => {
         : [{ provider: 'test-provider', id: 'test-model', name: 'Test Model' }],
     } as never)
     const { app, code } = await test.run()
-    await app.openModelPicker()
+    await app.submit('/model')
     test.fake.type('\x1b[A')
     test.fake.type('\r')
     await Promise.resolve()
@@ -912,6 +1017,21 @@ describe('tui runtime', () => {
     const { app, code } = await test.run()
     await app.submit('/sessions')
     expect(app['transcript'].container.render(80).join('\n')).toContain('session listing is not mounted')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('notices a session listing failure instead of rejecting the command plane', async () => {
+    const test = await bench()
+    test.ctx.provide('sessionQuery', {
+      filterSessions: async () => { throw new Error('session query failed') },
+    } as never)
+    const { app, code } = await test.run()
+    await app.submit('/sessions')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('session query failed')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()

@@ -99,6 +99,6 @@ export function apply(ctx: Context, config: Config): void {
   const app = new TuiApp(ctx, config.resume, io, () => themeSource(), wireThemeSettings)
   ctx.effect(() => {
     void app.start().catch((error: unknown) => { fail(io, error) })
-    return () => { app.stop() }
+    return () => app.dispose()
   })
 }

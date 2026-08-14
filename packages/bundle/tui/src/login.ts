@@ -172,9 +172,14 @@ export class LoginStatusView implements Component {
  * An `AuthInteraction` that prompts and notifies through TUI overlays.
  * @param tui - the live renderer that owns overlay focus.
  * @param hooks - optional open/close/notice notifications for the session owner.
+ * @param ownerSignal - optional owner lifetime signal that cancels the flow before an overlay opens.
  * @returns prompts over overlays and notifications on the transcript or a status overlay.
  */
-export function createTuiAuthInteraction(tui: TUI, hooks: LoginPromptHooks = {}): AuthInteraction {
+export function createTuiAuthInteraction(
+  tui: TUI,
+  hooks: LoginPromptHooks = {},
+  ownerSignal?: AbortSignal,
+): AuthInteraction {
   const abort = new AbortController()
   let inner: OverlayHandle | undefined
   let opened = false
@@ -189,6 +194,7 @@ export function createTuiAuthInteraction(tui: TUI, hooks: LoginPromptHooks = {})
     if (closed) return
     closed = true
     dismissInner()
+    ownerSignal?.removeEventListener('abort', onOwnerAbort)
     if (aborted) abort.abort()
     if (opened) hooks.onClose?.()
   }
@@ -213,6 +219,10 @@ export function createTuiAuthInteraction(tui: TUI, hooks: LoginPromptHooks = {})
     if (prompt.signal === undefined) return abort.signal
     return AbortSignal.any([abort.signal, prompt.signal])
   }
+
+  function onOwnerAbort(): void { close(true) }
+  if (ownerSignal?.aborted) close(true)
+  else ownerSignal?.addEventListener('abort', onOwnerAbort, { once: true })
 
   return {
     signal: abort.signal,

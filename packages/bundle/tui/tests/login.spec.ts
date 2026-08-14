@@ -112,6 +112,20 @@ describe('createTuiAuthInteraction', () => {
     })).rejects.toThrow(LOGIN_CANCELLED)
   })
 
+  it('cancels a flow when the owning runtime aborts before a prompt opens', async () => {
+    const shown = fakeTui()
+    const owner = new AbortController()
+    const interaction = createTuiAuthInteraction(shown.tui, {}, owner.signal)
+    owner.abort()
+    const pending = interaction.prompt({
+      type: 'text',
+      message: 'Token',
+    })
+    await expect(pending).rejects.toThrow(LOGIN_CANCELLED)
+    expect(interaction.signal?.aborted).toBe(true)
+    expect(shown.shown).toHaveLength(0)
+  })
+
   it('cancels a select on escape or an external hide', async () => {
     const escaped = fakeTui()
     const cancelling = createTuiAuthInteraction(escaped.tui).prompt({
