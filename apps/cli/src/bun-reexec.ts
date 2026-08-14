@@ -1,6 +1,9 @@
 /**
  * Re-exec the dsh entry under bun when the tui profile needs `@oh-my-pi/pi-tui`.
- * web / headless / dump-config / plugin stay on Node.
+ * Source `pnpm dsh` skips this hop for tui via `dsh-launch.mjs`, which also
+ * routes source headless and login onto bun when PATH has one. This module
+ * only re-execs the tui profile; installed web / headless / login /
+ * dump-config / plugin stay on Node.
  * @module @deepseek-ai/dsh/bun-reexec
  */
 

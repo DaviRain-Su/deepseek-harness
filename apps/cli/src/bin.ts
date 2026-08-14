@@ -3,6 +3,8 @@
  * dsh — command-line entry. Dynamic imports per mode keep unrelated modes out
  * of each dispatch path; the adapter prints and exits for
  * `--help`/`--version`/a parse error, so only a valid mode reaches the switch.
+ * Source `pnpm dsh` reaches here through `dsh-launch.mjs`: a tui boot is
+ * already bun, so {@link reexecTuiUnderBun} is a no-op on that path.
  * @module @deepseek-ai/dsh/bin
  */
 
