@@ -7,7 +7,6 @@
  */
 
 import * as nodeModule from 'node:module'
-import type { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import { Context } from '@deepseek-ai/cordis'
@@ -18,6 +17,7 @@ import type { CodeBindingNamespace, CodeJsonValue, CodeRunFailure, CodeRunReques
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
+import { drainWorkerPipes, listenWorkerPipes } from './pipes.ts'
 import { decodeWorkerJson, encodeWorkerJson } from './worker-json.ts'
 import type { WorkerJsonWire } from './worker-json.ts'
 
@@ -128,25 +128,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Resolve after a worker pipe emits all queued data, or closes/errors during termination. */
-function waitForPipeDrain(stream: Readable): Promise<void> {
-  if (stream.readableEnded || stream.destroyed) return Promise.resolve()
-  return new Promise((resolve) => {
-    const done = (): void => {
-      stream.off('end', done)
-      stream.off('close', done)
-      stream.off('error', done)
-      resolve()
-    }
-    stream.once('end', done)
-    stream.once('close', done)
-    stream.once('error', done)
-    // Close the event-registration race if termination finished between the
-    // initial state check and the listeners above.
-    /* v8 ignore next -- this race cannot be scheduled deterministically between the adjacent state check and listener registration. */
-    if (stream.readableEnded || stream.destroyed) done()
-  })
-}
 
 /**
  * Runtime shape gate for inbound port traffic. The peer runs MODEL CODE and
@@ -432,8 +413,7 @@ export class WorkerThreadCodeRuntime extends CodeRuntime {
           finish(limited)
         }
       }
-      worker.stdout.on('data', captureStray)
-      worker.stderr.on('data', captureStray)
+      listenWorkerPipes(worker.stdout, worker.stderr, captureStray)
 
       // Exactly one outcome wins. Every path cleans up, terminates, and awaits the worker;
       // logs captured before timeout, abort, or failure remain in the result.
@@ -449,9 +429,8 @@ export class WorkerThreadCodeRuntime extends CodeRuntime {
         // Let the poll phase deliver pipe bytes already queued independently
         // of the terminal port message before termination closes the streams.
         void new Promise<void>((resume) => { setImmediate(resume) }).then(async () => {
-          const stdoutDrained = waitForPipeDrain(worker.stdout)
-          const stderrDrained = waitForPipeDrain(worker.stderr)
-          await Promise.all([worker.terminate(), stdoutDrained, stderrDrained])
+          const pipesDrained = drainWorkerPipes(worker.stdout, worker.stderr)
+          await Promise.all([worker.terminate(), pipesDrained])
           const result = terminalOverride ?? (typeof finalize === 'function' ? finalize() : finalize)
           finishResolve()
           resolve(result)
