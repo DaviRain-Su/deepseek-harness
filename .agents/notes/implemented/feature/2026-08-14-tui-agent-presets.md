@@ -10,13 +10,15 @@ Web composes each session from [`dsh-agent-presets`](../../../../packages/preset
 
 ## Decision
 
-The TUI patch inserts `agent-presets` with `default: standard` and disables the same host-plane tool rows Web disables, so a session does not see both copies. `apps/cli`'s `composeProfile` still patches the shipped root when the row exists. `tui-runtime` resolves the default before `agents.create` so `meta.agentPreset` is snapshotted, mounts in `setup`, and on resume mounts `resolveSessionPreset(session)`. `/preset` lists the roster, recomposes a blank session, and appends `agent-preset/selected`. When `ctx.agentPresets` is mounted, `/settings` also offers an Agent preset row that opens the same picker. A `turn/start` locks the composition. Missing `ctx.agentPresets` notices and leaves the host composition. Subagent children still use `composeFrom()`, never a second `mount()` by id. The footer shows `preset <id>` when `composedPreset` answers.
+The TUI patch inserts `agent-presets` with `default: standard` and disables the same host-plane tool rows Web disables, so a session does not see both copies. It also inserts [`dsh-cordis-host-runner`](../../../../packages/extensions/cordis-host-runner/README.md) so the shipped `cordis` preset can activate `tool-cordis`; the browser client runner stays off. `apps/cli`'s `composeProfile` still patches the shipped root when the row exists. `tui-runtime` resolves the default before `agents.create` so `meta.agentPreset` is snapshotted, mounts in `setup`, and on resume mounts `resolveSessionPreset(session)`. `/preset` lists the roster, recomposes a blank session, and appends `agent-preset/selected`. When `ctx.agentPresets` is mounted, `/settings` offers an Agent preset row that opens the same picker, and a Default preset row that writes `agent-presets.default` through `ctx.settings.mutate`. Broken roster rows are omitted from that picker; Clear unsets a user-layer default so the composition default wins. The next `/new` reads the live `defaultId`. A pick that is already the default is a no-op. A `turn/start` locks the composition. Missing `ctx.agentPresets` notices and leaves the host composition. Subagent children still use `composeFrom()`, never a second `mount()` by id. The footer shows `preset <id>` when `composedPreset` answers.
 
 ## Alternatives considered
 
 **Mount the roster without disabling host tools.** Rejected: the agent would see both the base registrations and the standing mount.
 
-**A two-step workspace-style preset authoring UI.** Rejected: copy/delete stay on the Web General page; TUI only selects.
+**A two-step workspace-style preset authoring UI.** Rejected: copy/delete stay on the Web General page; TUI only selects the current session and the standing default.
+
+**Making `/preset` also write the standing default.** Rejected: Web keeps the General default and the current-session switch apart; a started TUI session still needs `/new` before `/preset` can run.
 
 **Allow `/preset` after the first turn.** Rejected: `recompose` does not read history; swapping tools mid-conversation would leave logged calls the new composition cannot make. The caller owns the blank check, same as the Web select path.
 
@@ -26,9 +28,10 @@ A shipped `dsh` TUI session runs on `standard` unless the log records another pr
 
 ## Testing
 
-`tests/presets.spec.ts` pins `sessionBlank` and `presetPickerItem`. `tests/tui.spec.ts` under `pnpm run test:tui` notices a missing roster, mounts `standard` on create, recomposes `/preset code`, locks after `turn/start`, and opens the same picker from the `/settings` hub. There is still no keyless assembled TUI snapshot.
+`tests/presets.spec.ts` pins `sessionBlank`, `presetPickerItem`, `defaultPresetRows`, and the host-runner row in `cordis.patch.yml`. `tests/tui.spec.ts` under `pnpm run test:tui` notices a missing roster, mounts `standard` on create, recomposes `/preset code`, locks after `turn/start`, opens the same picker from the `/settings` hub, and writes or clears `agent-presets.default`. There is still no keyless assembled TUI snapshot.
 
 ## Related
 
 - [Shipped TUI profile](2026-08-13-shipped-tui-profile.md) — the host-plane tools sentence this note updates.
 - [TUI session status chips](2026-08-14-tui-session-status-chips.md) — the footer chip row that now includes `preset`.
+- [TUI /new](2026-08-15-tui-new-session.md) — a started session starts a blank one so `/preset` can run again.

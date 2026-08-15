@@ -13,8 +13,10 @@ import {
   SessionFooter,
   SessionHeader,
   runningSubagentsLabel,
+  subagentsRow,
   subagentWindowTitle,
 } from '../src/chrome.ts'
+import type { SubagentRunSummary } from '../src/subagents.ts'
 
 function stub(lines: string[], hooks?: {
   invalidate?: () => void
@@ -44,7 +46,9 @@ describe('SessionHeader', () => {
     expect(lines.join('\n')).toContain('alt+o diff')
     expect(lines.join('\n')).toContain('/model')
     expect(lines.join('\n')).toContain('/login')
+    expect(lines.join('\n')).toContain('/new')
     expect(lines.join('\n')).toContain('/sessions')
+    expect(lines.join('\n')).toContain('/fork')
     expect(lines.join('\n')).toContain('/jobs')
     expect(lines.join('\n')).toContain('/preset')
     expect(lines.join('\n')).toContain('/theme')
@@ -99,18 +103,32 @@ describe('SessionFooter', () => {
     expect(new SessionFooter('/tmp/work', 'm', '/tmp/work').render(40)[0]).toContain('~')
   })
 
-  it('counts running subagents on the stats row and shares the window-title label', () => {
+  it('lists each running subagent on a dedicated row and shares the window-title count', () => {
     const footer = new SessionFooter('/tmp', 'm')
-    footer.setSubagents(1)
-    expect(footer.render(80)[1]).toContain('1 subagent running')
-    footer.setSubagents(2)
-    expect(footer.render(80)[1]).toContain('2 subagents running')
-    footer.setSubagents(0)
+    expect(footer.render(80)).toHaveLength(2)
+
+    const thinking: SubagentRunSummary = { label: 'survey', status: 'thinking' }
+    footer.setSubagentRuns([thinking])
+    const one = footer.render(80)
+    expect(one).toHaveLength(3)
+    expect(one[1]).toContain('⏵ survey: thinking')
+    expect(one[2]).not.toContain('subagent')
+
+    const running: SubagentRunSummary = { label: 'build', status: 'running bash' }
+    footer.setSubagentRuns([thinking, running])
+    const two = footer.render(80)
+    expect(two[1]).toContain('⏵ survey: thinking')
+    expect(two[1]).toContain('⏵ build: running bash')
+
+    footer.setSubagentRuns([])
+    expect(footer.render(80)).toHaveLength(2)
     expect(footer.render(80)[1]).not.toContain('subagent')
+
     expect(runningSubagentsLabel(0)).toBeUndefined()
     expect(subagentWindowTitle(0)).toBe('dsh')
     expect(subagentWindowTitle(1)).toBe('dsh · 1 subagent running')
     expect(subagentWindowTitle(2)).toBe('dsh · 2 subagents running')
+    expect(subagentsRow([thinking, running])).toBe('⏵ survey: thinking · ⏵ build: running bash')
   })
 
   it('inserts a durable stats row between cwd and the model row when set', () => {

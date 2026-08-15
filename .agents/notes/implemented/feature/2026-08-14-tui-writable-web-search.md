@@ -10,21 +10,21 @@ Web's Plugins card writes the DeepSeek search key through `ctx.credentials` and 
 
 ## Decision
 
-When `describe()` lists `web-search-deepseek`, `/settings` inserts a Web search row after Models. Confirming it opens Set / Clear API key and Set / Clear base URL. The key stores under the section's `apiKeyEnv`, or `DEEPSEEK_API_KEY` — never a derived `WEB_SEARCH_DEEPSEEK_API_KEY`. Clear calls `credentials.unset`. Base URL reuses the Models string write on the section root. `maxUses`, model, and protocol stay off this path. A missing namespace omits the row so existing hub navigation does not shift.
+When `describe()` lists `web-search-deepseek`, `/settings` inserts a Web search row after Models. Confirming it opens Set / Clear API key, Set / Clear base URL, and Set / Clear `maxUses`. The key stores under the section's `apiKeyEnv`, or `DEEPSEEK_API_KEY` — never a derived `WEB_SEARCH_DEEPSEEK_API_KEY`. Clear calls `credentials.unset`. Base URL reuses the Models string write on the section root. `maxUses` reuses the Shell positive-integer write. Model and protocol stay off this path. A missing namespace omits the row so existing hub navigation does not shift.
 
 ## Alternatives considered
 
-**A schema-driven Plugins editor (bash timeout, agent-loop cap, maxUses).** Rejected: those fields are the start of the editor this TUI has already declined. One credential and one string match the Models write.
+**A schema-driven Plugins editor (bash timeout, agent-loop cap, maxUses).** Rejected: those fields are the start of the editor this TUI has already declined. `maxUses` later joined this panel as the same hand-written positive-integer write Shell already uses; the schema editor stays off.
 
 **Reuse the Models DeepSeek row.** Rejected: chat and search use different endpoints; writing the shared key from Models does not set `DEEPSEEK_SEARCH_BASE_URL`.
 
 ## Consequences
 
-`/settings` → Web search can store a search key and override the search endpoint without opening the YAML. The default key is the same reference official DeepSeek chat uses.
+`/settings` → Web search can store a search key, override the search endpoint, and set `maxUses` without opening the YAML. The default key is the same reference official DeepSeek chat uses.
 
 ## Testing
 
-`tests/settings.spec.ts` pins the hub row and `webSearchKeyRef`. `tests/tui.spec.ts` under `pnpm run test:tui` opens the row when `describe()` lists the namespace and stores a key plus `baseURL` through stub `credentials` and `settings.mutate`. There is still no keyless assembled TUI snapshot.
+`tests/settings.spec.ts` pins the hub row, `webSearchKeyRef`, and `webSearchActionRows`. `tests/tui.spec.ts` under `pnpm run test:tui` opens the row when `describe()` lists the namespace and stores a key, `baseURL`, and `maxUses` through stub `credentials` and `settings.mutate`. There is still no keyless assembled TUI snapshot.
 
 ## Related
 

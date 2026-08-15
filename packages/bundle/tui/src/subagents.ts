@@ -38,14 +38,48 @@ export interface SubagentTrackerHooks {
    */
   lookupTool(name: string, agent: Agent | undefined): ToolDefinition | undefined
   /**
-   * Report the live running-run count for the footer.
+   * Report the live running count and per-run status for the footer.
    * @param running - runs started but not yet settled.
+   * @param summaries - one {@link SubagentRunSummary} per running run, in
+   *   start order; empty when no run is live.
    */
-  countChanged(running: number): void
+  runsChanged(running: number, summaries: readonly SubagentRunSummary[]): void
+}
+
+/**
+ * One running subagent's footer-facing status. The footer paints one
+ * `⏵ label: status` entry per summary while any run is live.
+ */
+export interface SubagentRunSummary {
+  /** Descriptor label, or the `subagent · <provider>` fallback before one arrives. */
+  readonly label: string
+  /** `running <tool>` while a child tool call is pending, else `thinking`. */
+  readonly status: string
+}
+
+/**
+ * One tracked run in the Agent Hub roster. The hub lists every run — live and
+ * recently settled — and opens a full transcript overlay for the chosen entry.
+ */
+export interface SubagentRosterEntry {
+  /** The `subagent/start` run id; unique within the tracker. */
+  readonly runId: string
+  /** The child session id; the hub replays this session's log. */
+  readonly childSessionId: SessionId
+  /** Descriptor label, or the `subagent · <provider>` fallback. */
+  readonly label: string
+  /** Provider name from `subagent/start`. */
+  readonly provider: string
+  /** `thinking` / `running <tool>` while live, or the `subagent/end` stop reason. */
+  readonly status: string
+  /** True until `subagent/end` settles the run. */
+  readonly running: boolean
 }
 
 interface RunState {
   readonly card: ToolCard
+  readonly runId: string
+  readonly childSessionId: SessionId
   readonly provider: string
   /** Durable creation label from the child's `subagent/descriptor`. */
   label: string | undefined
@@ -58,6 +92,8 @@ interface RunState {
   /** Open child calls by call id, so a failing result can name its tool. */
   readonly pendingTools: Map<string, string>
   done: boolean
+  /** Terminal stop reason from `subagent/end`; undefined while the run is live. */
+  stopReason: SubagentRunEndInfo['stopReason'] | undefined
 }
 
 /**
@@ -89,6 +125,8 @@ export class SubagentTracker {
     if (this.runs.has(info.runId)) return
     const state: RunState = {
       card: new ToolCard(pendingTitle(undefined, info.provider), []),
+      runId: info.runId,
+      childSessionId: info.id,
       provider: info.provider,
       label: undefined,
       activity: [],
@@ -96,12 +134,13 @@ export class SubagentTracker {
       tools: 0,
       pendingTools: new Map(),
       done: false,
+      stopReason: undefined,
     }
     this.runs.set(info.runId, state)
     this.byChild.set(info.id, state)
     this.container.addChild(state.card)
     this.running += 1
-    this.hooks.countChanged(this.running)
+    this.notify()
   }
 
   /**
@@ -133,13 +172,14 @@ export class SubagentTracker {
     this.byChild.clear()
     if (this.running === 0) return
     this.running = 0
-    this.hooks.countChanged(0)
+    this.notify()
   }
 
   end(info: SubagentRunEndInfo): boolean {
     const state = this.runs.get(info.runId)
     if (state === undefined || state.done) return false
     state.done = true
+    state.stopReason = info.stopReason
     this.running -= 1
     const failed = info.stopReason !== 'completed'
     const summary = `${String(state.tools)} tool call${state.tools === 1 ? '' : 's'} · ${info.stopReason}`
@@ -147,7 +187,7 @@ export class SubagentTracker {
       ...this.body(state),
       summary,
     ], failed)
-    this.hooks.countChanged(this.running)
+    this.notify()
     return true
   }
 
@@ -156,6 +196,7 @@ export class SubagentTracker {
       if (state.label === undefined && typeof event.data.label === 'string') {
         state.label = event.data.label
         state.card.update(pendingTitle(state.label, state.provider), this.body(state))
+        this.notify()
       }
       return
     }
@@ -169,6 +210,7 @@ export class SubagentTracker {
       state.pendingTools.set(event.data.callId, event.data.name)
       state.tools += 1
       this.push(state, linesForCall(view).title)
+      this.notify()
       return
     }
     if (event.type === 'tool/result') {
@@ -178,7 +220,55 @@ export class SubagentTracker {
       if (block.isError === true || event.data.error !== undefined) {
         this.push(state, `✗ ${name} failed`)
       }
+      this.notify()
     }
+  }
+
+  /**
+   * Snapshot of every running run's footer status, in start order. Settled
+   * runs are excluded; the footer hides the row entirely when this is empty.
+   * @returns one summary per live run.
+   */
+  summaries(): readonly SubagentRunSummary[] {
+    const out: SubagentRunSummary[] = []
+    for (const state of this.runs.values()) {
+      if (!state.done) out.push(this.summarize(state))
+    }
+    return out
+  }
+
+  /**
+   * Snapshot of every tracked run for the Agent Hub roster, in start order.
+   * Both live and settled runs appear until {@link reset} clears them, so the
+   * user can inspect a run that just finished. Settled entries carry the
+   * `subagent/end` stop reason as their status.
+   * @returns one entry per tracked run, oldest first.
+   */
+  roster(): readonly SubagentRosterEntry[] {
+    const out: SubagentRosterEntry[] = []
+    for (const state of this.runs.values()) {
+      out.push({
+        runId: state.runId,
+        childSessionId: state.childSessionId,
+        label: state.label ?? `subagent · ${state.provider}`,
+        provider: state.provider,
+        status: state.done ? (state.stopReason ?? 'settled') : this.summarize(state).status,
+        running: !state.done,
+      })
+    }
+    return out
+  }
+
+  private summarize(state: RunState): SubagentRunSummary {
+    const label = state.label ?? `subagent · ${state.provider}`
+    const pending = Array.from(state.pendingTools.values())
+    const status = pending.length > 0 ? `running ${pending[pending.length - 1]}` : 'thinking'
+    return { label, status }
+  }
+
+  /** Push the current running count and per-run summaries to the footer hook. */
+  private notify(): void {
+    this.hooks.runsChanged(this.running, this.summaries())
   }
 
   private push(state: RunState, line: string): void {

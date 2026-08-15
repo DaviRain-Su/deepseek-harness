@@ -7,7 +7,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SubagentRunEndInfo, SubagentRunId, SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { SubagentTracker } from '../src/subagents.ts'
+import { SubagentTracker, type SubagentRunSummary } from '../src/subagents.ts'
 
 // SUBAGENT_DESCRIPTOR_VERSION: a literal keeps this suite from importing the
 // service runtime (zod) that vite's bun resolver cannot reach from this package.
@@ -35,6 +35,7 @@ function childSession(id: string): Session {
 function harness() {
   const container = new Container()
   const counts: number[] = []
+  const summaries: SubagentRunSummary[][] = []
   const resolved: string[] = []
   const tracker = new SubagentTracker(container, {
     resolveAgent: (id) => {
@@ -44,10 +45,13 @@ function harness() {
     lookupTool: name => name === 'bash'
       ? ({ presentCall: () => ({ card: 'terminal' as const, title: 'pnpm test' }) } as unknown as ToolDefinition)
       : undefined,
-    countChanged: running => counts.push(running),
+    runsChanged: (running, snaps) => {
+      counts.push(running)
+      summaries.push(snaps)
+    },
   })
   const text = () => container.render(80).join('\n')
-  return { container, counts, resolved, tracker, text }
+  return { container, counts, summaries, resolved, tracker, text }
 }
 
 describe('SubagentTracker', () => {
@@ -147,5 +151,67 @@ describe('SubagentTracker', () => {
       turn: 1, step: 1, callId: CallId('c1'), name: 'mystery', arguments: 'not-json',
     }))
     expect(text()).toContain('● mystery')
+  })
+
+  it('reports per-run status as thinking, running <tool>, then thinking again', () => {
+    const { tracker, summaries } = harness()
+    const child = SessionId('child-status')
+    tracker.start(startInfo('run-1', child))
+    expect(summaries[summaries.length - 1]).toEqual([{ label: 'subagent · in-process', status: 'thinking' }])
+
+    tracker.sessionEvent(childSession('child-status'), event('subagent/descriptor', {
+      version: DESCRIPTOR_VERSION, mode: 'one-shot', provider: 'in-process', label: 'survey',
+    }))
+    expect(summaries[summaries.length - 1]).toEqual([{ label: 'survey', status: 'thinking' }])
+
+    tracker.sessionEvent(childSession('child-status'), event('tool/call', {
+      turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: '{}',
+    }))
+    expect(summaries[summaries.length - 1]).toEqual([{ label: 'survey', status: 'running bash' }])
+
+    tracker.sessionEvent(childSession('child-status'), event('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }] }),
+    }))
+    expect(summaries[summaries.length - 1]).toEqual([{ label: 'survey', status: 'thinking' }])
+
+    tracker.end(endInfo('run-1', child, 'completed'))
+    expect(summaries[summaries.length - 1]).toEqual([])
+  })
+
+  it('rosters live and settled runs with status and child session id', () => {
+    const { tracker } = harness()
+    const child = SessionId('child-roster')
+    tracker.start(startInfo('run-1', child, 'claude-code'))
+    tracker.sessionEvent(childSession('child-roster'), event('subagent/descriptor', {
+      version: DESCRIPTOR_VERSION, mode: 'one-shot', provider: 'claude-code', label: 'survey',
+    }))
+    tracker.sessionEvent(childSession('child-roster'), event('tool/call', {
+      turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: '{}',
+    }))
+
+    const live = tracker.roster()
+    expect(live).toEqual([{
+      runId: 'run-1',
+      childSessionId: child,
+      label: 'survey',
+      provider: 'claude-code',
+      status: 'running bash',
+      running: true,
+    }])
+
+    tracker.end(endInfo('run-1', child, 'error'))
+    const settled = tracker.roster()
+    expect(settled).toEqual([{
+      runId: 'run-1',
+      childSessionId: child,
+      label: 'survey',
+      provider: 'claude-code',
+      status: 'error',
+      running: false,
+    }])
+
+    tracker.reset()
+    expect(tracker.roster()).toEqual([])
   })
 })

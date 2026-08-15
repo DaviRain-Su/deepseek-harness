@@ -1,11 +1,10 @@
-/** Session picker rows: top-level filter, cwd grouping, title label, and current mark. */
+/** Session picker rows: cwd grouping, title label, subagent mark, and current mark. */
 
 import { describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   formatSessionCreatedAt,
-  isSwitchableSession,
   sessionCwdGroup,
   sessionPickerItem,
   sortSessionPickerEntries,
@@ -27,17 +26,6 @@ function entry(id: string, overrides: Partial<SessionHeader> = {}): {
 } {
   return { id, header: header({ id: SessionId(id), ...overrides }) }
 }
-
-describe('isSwitchableSession', () => {
-  it('keeps top-level sessions in any cwd and drops children', () => {
-    expect(isSwitchableSession(header())).toBe(true)
-    const noCwd: SessionHeader = { version: 0, id: SessionId('session-1'), createdAt: Date.UTC(2026, 7, 14, 3, 4, 0) }
-    expect(isSwitchableSession(noCwd)).toBe(true)
-    expect(isSwitchableSession(header({ cwd: '/other' }))).toBe(true)
-    expect(isSwitchableSession(header({ origin: 'subagent' }))).toBe(false)
-    expect(isSwitchableSession(header({ parentSession: SessionId('parent') }))).toBe(false)
-  })
-})
 
 describe('sortSessionPickerEntries', () => {
   it('puts this cwd and a missing cwd first, then other cwds, newest within a group', () => {
@@ -84,5 +72,14 @@ describe('sessionPickerItem', () => {
       header: { version: 0, id: SessionId('session-3'), createdAt: Date.UTC(2026, 7, 14, 3, 4, 0) },
     }, undefined, undefined)
     expect(noCwd.description).toBe('2026-08-14 03:04')
+    const child = sessionPickerItem({
+      id: 'session-child',
+      header: header({
+        id: SessionId('session-child'),
+        origin: 'subagent',
+        parentSession: SessionId('parent'),
+      }),
+    }, undefined, undefined)
+    expect(child.description).toBe('2026-08-14 03:04 · /work · subagent')
   })
 })

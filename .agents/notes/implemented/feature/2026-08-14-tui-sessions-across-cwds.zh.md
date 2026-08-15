@@ -10,7 +10,7 @@ Web 按工作区分组对话。TUI 的 `/sessions` picker 只列出 header cwd �
 
 ## 决策
 
-`filterSessions` 只保留 `parent: null`，去掉 cwd 条件。`isSwitchableSession` 仍隐藏 subagent `origin` 和带 `parentSession` 的行。排序上本进程 cwd（以及缺 cwd）在前，其余 cwd 按字母序，组内按 `createdAt` 最新。header 记了 cwd 时，行描述带上 `formatCwdForFooter`。选中其他 cwd 的行是进程内 resume，和 `--resume <id>` 一样；进程工作目录不变。
+`filterSessions` 为 `[]`（没有 cwd 条件，也没有 `parent: null`）。没有 header 过滤；`origin: 'subagent'` 的子会话会出现并带 `subagent` 标记（[TUI /sessions 打开 subagent 子会话](2026-08-15-tui-sessions-subagent-children.md)）。排序上本进程 cwd（以及缺 cwd）在前，其余 cwd 按字母序，组内按 `createdAt` 最新。header 记了 cwd 时，行描述带上 `formatCwdForFooter`。选中其他 cwd 的行是进程内 resume，和 `--resume <id>` 一样；进程工作目录不变。
 
 ## 考虑过的替代方案
 
@@ -22,13 +22,15 @@ Web 按工作区分组对话。TUI 的 `/sessions` picker 只列出 header cwd �
 
 ## 后果
 
-`/sessions` 展示查询服务能看到的全部顶层对话。切到其他 cwd 的会话后，工具仍在启动工作目录里跑。subagent 子会话仍不进 picker。
+`/sessions` 展示查询服务能看到的全部对话，包括普通 fork 和 subagent origin 的子会话。切到其他 cwd 的会话后，工具仍在启动工作目录里跑。
 
 ## 测试
 
-`tests/sessions.spec.ts` 钉住只保留顶层、cwd 分组顺序，以及描述里的 cwd。`tests/tui.spec.ts` 在 `pnpm run test:tui` 下断言 `filterSessions` 只带 `parent: null`，且 `/other` 行排在本 cwd 之后。仍没有无密钥的组装 TUI 快照。
+`tests/sessions.spec.ts` 钉住 cwd 分组顺序，以及描述里的 cwd。`tests/tui.spec.ts` 在 `pnpm run test:tui` 下断言 `filterSessions` 带 `[]`，且 `/other` 行排在本 cwd 之后，同时保留 fork 行和 subagent origin 行。仍没有无密钥的组装 TUI 快照。
 
 ## 相关
 
 - [TUI 会话 picker](2026-08-14-tui-session-picker.md) — 本目录现在跨 cwd 填充的 overlay 与进程内 resume。
 - [已交付的交互式 TUI profile](2026-08-13-shipped-tui-profile.md) — picker 所切换的、启动时一个会话的组合。
+- [TUI /rename 与 /fork](2026-08-15-tui-rename-fork.md) — `/fork` 同样不改进程 cwd；picker 保留子会话。
+- [TUI /sessions 打开 subagent 子会话](2026-08-15-tui-sessions-subagent-children.md) — 同一份扁平列表包含 `origin: 'subagent'` 的子会话。

@@ -7,6 +7,9 @@
 
 import type { SelectItem } from '@oh-my-pi/pi-tui'
 
+/** Picker value that unsets the user-layer standing default preset. */
+export const CLEAR_DEFAULT_PRESET = 'clear-default'
+
 /** One roster entry the `/preset` picker can show. */
 export interface PresetPickerEntry {
   /** Stable preset id (the directory name). */
@@ -33,19 +36,43 @@ export function sessionBlank(session: { readonly events: readonly { readonly typ
  * One `/preset` picker row. A broken preset stays visible so the id is not
  * a silent hole; the owner refuses to recompose it.
  * @param preset - a roster entry.
- * @param current - the live agent's composed preset id, when any.
+ * @param current - the live agent's composed preset id, or the standing default.
+ * @param mark - appended when {@link current} matches; `/preset` uses `current`.
  * @returns a SelectList item whose value is the preset id.
  */
-export function presetPickerItem(preset: PresetPickerEntry, current?: string): SelectItem {
+export function presetPickerItem(preset: PresetPickerEntry, current?: string, mark = 'current'): SelectItem {
   const label = preset.name ?? preset.id
   const parts: string[] = []
   if (preset.id !== label) parts.push(preset.id)
   if (preset.description !== undefined && preset.description.length > 0) parts.push(preset.description)
   if (preset.broken !== undefined) parts.push(`broken: ${preset.broken}`)
-  if (current === preset.id) parts.push('current')
+  if (current === preset.id) parts.push(mark)
   return {
     value: preset.id,
     label: preset.broken === undefined ? label : `${label} (broken)`,
     ...parts.length === 0 ? {} : { description: parts.join(' · ') },
   }
+}
+
+/**
+ * Standing-default picker: optional Clear, then mountable (not broken) roster
+ * rows marked `default`.
+ * @param presets - the live roster.
+ * @param defaultId - the standing default id, when known.
+ * @param canClear - true when the user layer names `default`.
+ * @returns rows in declaration order.
+ */
+export function defaultPresetRows(
+  presets: readonly PresetPickerEntry[],
+  defaultId: string | undefined,
+  canClear: boolean,
+): SelectItem[] {
+  return [
+    ...canClear
+      ? [{ value: CLEAR_DEFAULT_PRESET, label: 'Clear default', description: 'Use the composition default' }]
+      : [],
+    ...presets
+      .filter(preset => preset.broken === undefined)
+      .map(preset => presetPickerItem(preset, defaultId, 'default')),
+  ]
 }

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-tui-writable-web-search.md
-2026-08-14-tui-writable-web-search.md: eb84f98d9767b7d355e4db8daab693878ec4d75d
-2026-08-14-tui-writable-web-search.zh.md: efd434408a1b12500e4aa942e7451a0f19ea56e3
+2026-08-14-tui-writable-web-search.md: 0c87995246136ee4746184146c927aafdd7234d2
+2026-08-14-tui-writable-web-search.zh.md: 75471e14aaf8fa219cdefc16aec29c353547eec8

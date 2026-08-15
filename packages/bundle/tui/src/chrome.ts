@@ -8,6 +8,7 @@
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { Ellipsis, truncateToWidth, visibleWidth, type Component } from '@oh-my-pi/pi-tui'
 import { bold, fg, TUI_COLOR } from './theme.ts'
+import type { SubagentRunSummary } from './subagents.ts'
 import { wrapLine } from './wrap.ts'
 
 /**
@@ -21,7 +22,7 @@ export class SessionHeader implements Component {
   constructor(private sessionId: string) {}
 
   /**
-   * Replace the dim session id after an in-process `/sessions` switch.
+   * Replace the dim session id after an in-process `/new`, `/fork`, or `/sessions` switch.
    * @param sessionId - the newly live Agent session id.
    */
   setSessionId(sessionId: string): void {
@@ -34,7 +35,22 @@ export class SessionHeader implements Component {
    */
   render(width: number): string[] {
     const logo = bold(fg(TUI_COLOR.accent, 'dsh'))
-    const hints = ['ctrl+c interrupt', 'ctrl+o expand', 'alt+o diff', '/model', '/login', '/sessions', '/jobs', '/preset', '/theme', '/exit'].join(fg(TUI_COLOR.muted, ' · '))
+    const hints = [
+      'ctrl+c interrupt',
+      'ctrl+o expand',
+      'alt+o diff',
+      'alt+a agents',
+      '/model',
+      '/login',
+      '/new',
+      '/sessions',
+      '/fork',
+      '/jobs',
+      '/agents',
+      '/preset',
+      '/theme',
+      '/exit',
+    ].join(fg(TUI_COLOR.muted, ' · '))
     const onboarding = fg(TUI_COLOR.dim, 'Ask dsh to inspect or edit this workspace.')
     const session = fg(TUI_COLOR.dim, `session ${this.sessionId}`)
     return [
@@ -57,7 +73,7 @@ export class SessionHeader implements Component {
  */
 export class SessionFooter implements Component {
   private busy = false
-  private subagents = 0
+  private subagentRuns: readonly SubagentRunSummary[] = []
   private statsLine = ''
   private statusLine = ''
 
@@ -89,11 +105,13 @@ export class SessionFooter implements Component {
   }
 
   /**
-   * Replace the running-subagent count on the stats row; zero hides it.
-   * @param running - subagent runs started but not yet settled.
+   * Replace the per-running-subagent status row; an empty array hides it.
+   * Each entry paints as `⏵ label: status` on one dim row between the status
+   * chips and the model row.
+   * @param runs - one summary per live run, in start order.
    */
-  setSubagents(running: number): void {
-    this.subagents = running
+  setSubagentRuns(runs: readonly SubagentRunSummary[]): void {
+    this.subagentRuns = runs
   }
 
   /**
@@ -118,22 +136,23 @@ export class SessionFooter implements Component {
 
   /**
    * Paint cwd on the first row, the durable stats line on the second when
-   * present, status chips next, and the stats/model row on the last.
+   * present, status chips next, a per-subagent status row while any run is
+   * live, and the model row on the last.
    * @param width - columns available to this component.
-   * @returns cwd, optional stats, optional status chips, and the model row.
+   * @returns cwd, optional stats, optional status chips, optional subagents,
+   *   and the model row.
    */
   render(width: number): string[] {
     const pwd = truncateToWidth(fg(TUI_COLOR.dim, formatCwdForFooter(this.cwd, this.home)), width, Ellipsis.Ascii)
-    const running = runningSubagentsLabel(this.subagents)
     const hints = [
       ...this.busy ? ['enter append', 'ctrl+c cancel'] : [],
-      ...running === undefined ? [] : [running],
     ].join(' · ')
     const left = hints === '' ? '' : fg(TUI_COLOR.dim, hints)
     const right = fg(TUI_COLOR.dim, this.model)
     const rows = [pwd]
     if (this.statsLine !== '') rows.push(truncateToWidth(fg(TUI_COLOR.dim, this.statsLine), width, Ellipsis.Ascii))
     if (this.statusLine !== '') rows.push(truncateToWidth(fg(TUI_COLOR.accent, this.statusLine), width, Ellipsis.Ascii))
+    if (this.subagentRuns.length > 0) rows.push(truncateToWidth(fg(TUI_COLOR.dim, subagentsRow(this.subagentRuns)), width, Ellipsis.Ascii))
     rows.push(alignPair(left, right, width))
     return rows
   }
@@ -298,6 +317,16 @@ function alignPair(left: string, right: string, width: number): string {
 export function runningSubagentsLabel(running: number): string | undefined {
   if (running <= 0) return undefined
   return `${String(running)} subagent${running === 1 ? '' : 's'} running`
+}
+
+/**
+ * One dim footer row listing each running subagent's current status, joined
+ * by ` · ` in start order. The footer truncates the whole row to width.
+ * @param runs - one summary per live run.
+ * @returns `⏵ label: status` entries joined by ` · `.
+ */
+export function subagentsRow(runs: readonly SubagentRunSummary[]): string {
+  return runs.map(run => `⏵ ${run.label}: ${run.status}`).join(' · ')
 }
 
 /**

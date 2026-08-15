@@ -28,6 +28,7 @@ import {
   positiveIntRefusal,
   shellActionRows,
   agentLoopActionRows,
+  webSearchActionRows,
   userNamesField,
   type PermissionPresetSource,
   type PluginInventorySource,
@@ -81,7 +82,7 @@ describe('settingsHubRows', () => {
     expect(settingsHubRows({ agentLoop: true }).map(row => row.value))
       .toEqual(['theme', 'models', 'agent-loop', 'permission', 'inventory'])
     expect(settingsHubRows({ presets: true }).map(row => row.value))
-      .toEqual(['theme', 'models', 'permission', 'preset', 'inventory'])
+      .toEqual(['theme', 'models', 'permission', 'preset', 'default-preset', 'inventory'])
     expect(settingsHubRows({ sections: true }).map(row => row.value))
       .toEqual(['theme', 'models', 'permission', 'inventory', 'sections'])
     expect(settingsHubRows({ documentPath: '/tmp/dsh/settings.yaml', home: '/tmp' }).at(-1)).toEqual({
@@ -267,6 +268,21 @@ describe('displayNameRefusal', () => {
   it('refuses a blank name and accepts any non-empty string', () => {
     expect(displayNameRefusal('  ')).toBe('display name is blank')
     expect(displayNameRefusal('Acme Gateway')).toBeUndefined()
+  })
+})
+
+describe('webSearchActionRows', () => {
+  it('appends Set max uses after the credential rows, and Clear when overridden', () => {
+    expect(webSearchActionRows({
+      canClear: false, canClearBaseUrl: false, canSetDisplayName: false, canClearDisplayName: false,
+      canLogin: false, canClearMaxUses: false,
+    }).map(row => row.value))
+      .toEqual(['set-key', 'set-url', 'set-uses'])
+    expect(webSearchActionRows({
+      canClear: true, canClearBaseUrl: true, canSetDisplayName: false, canClearDisplayName: false,
+      canLogin: false, canClearMaxUses: true,
+    }).map(row => row.value))
+      .toEqual(['set-key', 'clear-key', 'set-url', 'clear-url', 'set-uses', 'clear-uses'])
   })
 })
 

@@ -15,7 +15,7 @@ TUI 之前完全看不见 subagent 的工作。`TranscriptView` 只折叠父会�
 - `subagent/start` 打开一张标题为 `⏵ subagent · <provider>` 的 pending `ToolCard`；子日志的 `subagent/descriptor` 事件追加后，标题换成其持久的 `label`。
 - tracker 按子会话 id 归键运行，把子日志的 `tool/call` 折叠成六行滚动活动 feed，展示走与父 transcript 相同的回退链（`presentToolCall` 现从 `transcript.ts` 导出；当 `ctx.agents` 仍持有子代理时，用活跃子代理解析工具定义）。失败的 `tool/result` 追加 `✗ <tool> failed`。
 - `subagent/end` 收尾卡片：标题加上 `— <stopReason>`，正文保留活动尾部加一行 `<n> tool calls · <reason>` 摘要，非 `completed` 的原因涂错误底色。`ToolCard` 为此新增 `update(title, body)` 以就地更新 pending 进度。
-- `SessionFooter.setSubagents` 在状态行加入 `<n> subagents running`；为零时隐藏。同一文案驱动窗口标题（空闲为 `dsh`，有运行时为 `dsh · <n> subagent(s) running`）和 OSC 进度（父轮次忙碌时也会打开）。真正收尾一次活运行的 `subagent/end` 写入 C0 BEL（`\a`）；重复与未知的 end 保持静音。拆卸在 `tui.stop()` 之前恢复空闲标题并清除进度。
+- tracker 通过 `runsChanged(running, summaries)` 把每个运行中的运行上报给页脚。`SessionFooter.setSubagentRuns` 在状态行与模型行之间画一行暗色行——`⏵ label: status` 条目按启动顺序以 ` · ` 连接——只要还有运行就显示；空数组隐藏。每条 summary 的 `status` 在子会话 `tool/call` 仍 pending（尚未 `tool/result`）时为 `running <tool>`，否则为 `thinking`，由 tracker 已有的 `pendingTools` 映射派生，因此无需消费新事件。窗口标题仍用计数（空闲为 `dsh`，有运行时为 `dsh · <n> subagent(s) running`），OSC 进度同理（父轮次忙碌时也会打开）。真正收尾一次活运行的 `subagent/end` 写入 C0 BEL（`\a`）；重复与未知的 end 保持静音。拆卸在 `tui.stop()` 之前恢复空闲标题并清除进度。
 - `TuiApp` 以非 scoped 方式监听 `subagent/start` / `subagent/end`（与 `hooks-claude-code` 相同的模式），并把非父会话的 `session/event` 路由给 tracker。嵌套委派与父代理的同级运行平铺渲染，而不是嵌在父卡片下。
 
 ## 备选方案
@@ -26,7 +26,7 @@ TUI 之前完全看不见 subagent 的工作。`TranscriptView` 只折叠父会�
 
 **在卡片里渲染子代理的最终输出。** 否决：父会话的 `tool/result` 卡片已经携带完整报告；运行卡片只保留停止原因与计数。
 
-**桌面通知或 `/agents` 名册面板。** 暂缓。oh-my-pi 在子代理完成时既没有终端响铃也没有桌面通知；它的答案是 Alt+A Agent Hub。已交付的提醒是引擎已有的 `setTitle` / `setProgress` 外加 C0 BEL。全屏名册仍是对标 OMP 的后续工作。
+**桌面通知或 `/agents` 名册面板。** 已交付的提醒是引擎已有的 `setTitle` / `setProgress` 外加 C0 BEL；对标 OMP 的 Alt+A 名册与全屏 transcript overlay 已作为 [TUI Agent Hub](2026-08-15-tui-agent-hub.md) 交付。
 
 ## 影响
 
@@ -34,4 +34,4 @@ TUI 之前完全看不见 subagent 的工作。`TranscriptView` 只折叠父会�
 
 ## 测试
 
-`tests/subagents.spec.ts`（bun）覆盖卡片打开/收尾与页脚计数、descriptor 标签、带工具展示的活动折叠、失败结果行、窗口滚动与 earlier 计数、外部会话拒绝、重复/未知生命周期边——包括 `end()` 是否真正收尾一次运行。`tests/tui.spec.ts` 中的应用级用例通过真实 `SessionStore` 分派发出生命周期对与子会话追加，断言页脚计数、运行中/空闲窗口标题、进度标志、捕获写入流中的 BEL，以及渲染后的卡片文本。
+`tests/subagents.spec.ts`（bun）覆盖卡片打开/收尾与页脚计数、descriptor 标签、带工具展示的活动折叠、失败结果行、窗口滚动与 earlier 计数、外部会话拒绝、重复/未知生命周期边，以及单次运行的 `thinking` → `running <tool>` → `thinking` 状态切换——包括 `end()` 是否真正收尾一次运行。`tests/chrome.spec.ts` 覆盖专属 subagents 行、空数组时隐藏，以及 `subagentsRow` 的连接。`tests/tui.spec.ts` 中的应用级用例通过真实 `SessionStore` 分派发出生命周期对与子会话追加，断言页脚的单运行行（先 `⏵ subagent · in-process: thinking`，再 `⏵ <label>: running bash`）、运行中/空闲窗口标题、进度标志、捕获写入流中的 BEL，以及渲染后的卡片文本。

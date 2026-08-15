@@ -4,11 +4,12 @@
  * reads the mounted `PermissionPresetService` and writes through `set`.
  * Models lists configurable providers and offers Set / Clear API key, Set /
  * Clear base URL, Set / Clear display name, plus Login; Web search writes the
- * DeepSeek search key and endpoint when that namespace is registered; Shell
+ * DeepSeek search key, endpoint, and `maxUses` when that namespace is registered; Shell
  * writes `timeoutMs` and `maxOutputBytes` when that namespace is registered;
  * Agent loop writes `maxParallelToolCalls` when that namespace is registered;
  * Agent preset reuses
- * `/preset` when the roster is mounted; Inventory is a read-only roster;
+ * `/preset` when the roster is mounted; Default preset writes
+ * `agent-presets.default`; Inventory is a read-only roster;
  * Sections lists namespaces and, when a section has field names, a name-only
  * field picker.
  * @module @deepseek-ai/dsh-tui/settings
@@ -54,8 +55,14 @@ export interface SettingsHubOptions {
   agentLoop?: boolean
 }
 
+/** Settings namespace of the standing default agent preset. */
+export const AGENT_PRESET_SETTINGS_NS = 'agent-presets'
+
 /** Settings namespace of the DeepSeek search provider. */
 export const WEB_SEARCH_SETTINGS_NS = 'web-search-deepseek'
+
+/** Per-request search-use cap field on the DeepSeek search section. */
+export const WEB_SEARCH_MAX_USES_FIELD = 'maxUses'
 
 /** Credential reference the search provider resolves when the section names none. */
 export const WEB_SEARCH_DEFAULT_KEY_REF = 'DEEPSEEK_API_KEY'
@@ -76,9 +83,9 @@ export const AGENT_LOOP_SETTINGS_NS = 'agent-loop'
 export const AGENT_LOOP_PARALLEL_FIELD = 'maxParallelToolCalls'
 
 /** Hub rows for the /settings panels.
- * @param options - Settings file, Agent preset, Web search, Shell, Agent loop, and Sections rows when those seams exist.
+ * @param options - Settings file, Agent preset, Default preset, Web search, Shell, Agent loop, and Sections rows when those seams exist.
  * @returns Appearance, Models, then optional Web search, Shell, Agent loop,
- *   Permission, Agent preset, Inventory, Sections, and Settings file.
+ *   Permission, Agent preset, Default preset, Inventory, Sections, and Settings file.
  */
 export function settingsHubRows(options: SettingsHubOptions = {}): SelectItem[] {
   return [
@@ -95,7 +102,10 @@ export function settingsHubRows(options: SettingsHubOptions = {}): SelectItem[] 
       : [],
     { value: 'permission', label: 'Permission', description: 'Sandbox mode + approval policy preset' },
     ...options.presets === true
-      ? [{ value: 'preset', label: 'Agent preset', description: 'Session composition roster' }]
+      ? [
+        { value: 'preset', label: 'Agent preset', description: 'This session, while blank' },
+        { value: 'default-preset', label: 'Default preset', description: 'New sessions use this' },
+      ]
       : [],
     { value: 'inventory', label: 'Inventory', description: 'Loaded plugins' },
     ...options.sections === true
@@ -427,6 +437,28 @@ export function agentLoopActionRows(canClear: boolean): SelectItem[] {
     { value: 'set-parallel', label: 'Set parallel cap', description: 'In-flight tool calls per step' },
     ...canClear
       ? [{ value: 'clear-parallel', label: 'Clear parallel cap', description: 'Use the composition default' }]
+      : [],
+  ]
+}
+
+/** Optional Clear max-uses row on the Web search picker. */
+export interface WebSearchFieldActions extends ProviderCredentialActions {
+  /** Show Clear max uses when the user layer names `maxUses`. */
+  readonly canClearMaxUses: boolean
+}
+
+/**
+ * Web search actions: the Models credential/endpoint rows, then Set max uses
+ * and optional Clear. Model and protocol stay off this path.
+ * @param actions - which optional rows to include.
+ * @returns rows in declaration order.
+ */
+export function webSearchActionRows(actions: WebSearchFieldActions): SelectItem[] {
+  return [
+    ...providerCredentialRows(actions),
+    { value: 'set-uses', label: 'Set max uses', description: 'Server-side searches per request' },
+    ...actions.canClearMaxUses
+      ? [{ value: 'clear-uses', label: 'Clear max uses', description: 'Use the composition default' }]
       : [],
   ]
 }

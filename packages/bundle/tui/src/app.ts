@@ -27,6 +27,7 @@ import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LlmModelInfo, LlmReasoningEffortInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
@@ -38,22 +39,55 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { SlashAutocomplete } from './autocomplete.ts'
 import type { SlashSkillItem } from './autocomplete.ts'
 import { MeasuredChild, SessionChrome, SessionFooter, SessionHeader, subagentWindowTitle } from './chrome.ts'
+import { AgentTranscriptOverlay, showAgentTranscriptOverlay } from './agent-hub.ts'
 import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, displayNameOf, displayNameRefusal, webSearchKeyRef, WEB_SEARCH_SETTINGS_NS, SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, SHELL_OUTPUT_FIELD, AGENT_LOOP_SETTINGS_NS, AGENT_LOOP_PARALLEL_FIELD, userNamesField, positiveIntRefusal, shellActionRows, agentLoopActionRows, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
+import {
+  promptPermissionPreset,
+  settingsHubRows,
+  inventoryRows,
+  modelsRows,
+  settingsSectionRows,
+  settingsSectionFields,
+  settingsSectionFieldRows,
+  providerCredentialRows,
+  deriveKeyRef,
+  apiKeyEnvOf,
+  apiKeyRefusal,
+  baseUrlOf,
+  baseUrlRefusal,
+  displayNameOf,
+  displayNameRefusal,
+  webSearchKeyRef,
+  AGENT_PRESET_SETTINGS_NS,
+  WEB_SEARCH_SETTINGS_NS,
+  WEB_SEARCH_MAX_USES_FIELD,
+  SHELL_SETTINGS_NS,
+  SHELL_TIMEOUT_FIELD,
+  SHELL_OUTPUT_FIELD,
+  AGENT_LOOP_SETTINGS_NS,
+  AGENT_LOOP_PARALLEL_FIELD,
+  userNamesField,
+  positiveIntRefusal,
+  shellActionRows,
+  agentLoopActionRows,
+  webSearchActionRows,
+  type PluginInventoryEntry,
+  type ModelsProviderEntry,
+  type SettingsSectionEntry,
+} from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
-import { presetPickerItem, sessionBlank } from './presets.ts'
+import { CLEAR_DEFAULT_PRESET, defaultPresetRows, presetPickerItem, sessionBlank } from './presets.ts'
 import { createQuestionProvider } from './questions.ts'
 import {
-  isSwitchableSession,
   sessionPickerItem,
   sortSessionPickerEntries,
   type SessionPickerEntry,
 } from './sessions.ts'
-import { SubagentTracker } from './subagents.ts'
+import { SubagentTracker, type SubagentRosterEntry } from './subagents.ts'
 import {
   applyTuiTheme,
   currentTuiThemeId,
@@ -67,7 +101,7 @@ import {
   TUI_THEME_SETTINGS_NAMESPACE,
   type TuiThemeSettings,
 } from './theme-settings.ts'
-import { TranscriptView, extractText } from './transcript.ts'
+import { TranscriptView, extractText, type ToolLookup } from './transcript.ts'
 import { statsLine } from './stats.ts'
 import { formatStatusChips, jobPickerItem } from './status.ts'
 import type { JobStatusRow } from './status.ts'
@@ -137,6 +171,8 @@ export class TuiApp {
   private transcriptMount: MeasuredChild | undefined
   private sessionHeader: SessionHeader | undefined
   private subagents: SubagentTracker | undefined
+  /** The open Agent Hub transcript overlay and the child session it renders. */
+  private agentTranscript: { sessionId: SessionId; overlay: AgentTranscriptOverlay } | undefined
   private readonly footer = new SessionFooter(process.cwd(), '')
   /** Route capacity resolved from the live model selection, shown before the first request. */
   private preheatedWindow: number | undefined
@@ -253,6 +289,10 @@ export class TuiApp {
         this.openDiffOverlay()
         return { consume: true }
       }
+      if (matchesKey(data, 'alt+a')) {
+        this.openAgentHub()
+        return { consume: true }
+      }
       return undefined
     })
 
@@ -289,6 +329,14 @@ export class TuiApp {
       },
     })
     commands.register({
+      name: 'agents',
+      description: 'Inspect subagent runs',
+      handler: () => {
+        this.openAgentHub()
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
       name: 'login',
       description: 'Log in to a subscription provider',
       input: { hint: 'provider' },
@@ -314,6 +362,37 @@ export class TuiApp {
       name: 'auth',
       description: 'Show subscription login status',
       handler: () => this.showAuthStatus(),
+    })
+    commands.register({
+      name: 'rename',
+      description: 'Rename this session',
+      input: { hint: 'title' },
+      handler: ({ rawInput }) => {
+        void this.startRename(rawInput.trim()).catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'fork',
+      description: 'Fork this session',
+      handler: () => {
+        void this.startFork().catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'new',
+      description: 'Start a new session',
+      handler: () => {
+        void this.startNew().catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
+        return { kind: 'success' as const, text: '' }
+      },
     })
     commands.register({
       name: 'sessions',
@@ -370,9 +449,9 @@ export class TuiApp {
     this.subagents = new SubagentTracker(this.transcript.container, {
       resolveAgent: id => this.ctx.get('agents')?.get(id),
       lookupTool: (name, scoped) => this.ctx.get('tools')?.get(name, scoped ?? this.agent),
-      countChanged: (running) => {
+      runsChanged: (running, summaries) => {
         this.subagentRunning = running
-        this.footer.setSubagents(running)
+        this.footer.setSubagentRuns(summaries)
         this.terminal?.setTitle(subagentWindowTitle(running))
         this.syncProgress()
         this.tui?.requestRender()
@@ -390,6 +469,10 @@ export class TuiApp {
       if (session === this.agent?.session) {
         this.applyEvent(event, false)
         return
+      }
+      if (this.agentTranscript?.sessionId === session.id) {
+        this.agentTranscript.overlay.applyEvent(event)
+        this.tui?.requestRender()
       }
       if (this.subagents?.sessionEvent(session, event) === true) this.tui?.requestRender()
     })
@@ -871,11 +954,12 @@ export class TuiApp {
    * `/settings`: open the settings hub. A confirmed row opens its sub-panel —
    * Appearance reuses the theme picker; Models lists configurable providers
    * and writes API keys, base URLs, and display names; Web search writes the
-   * DeepSeek search key and endpoint when that namespace is registered; Shell
-   * writes `timeoutMs` and `maxOutputBytes` when that namespace is
-   * registered; Agent loop writes `maxParallelToolCalls` when that namespace
-   * is registered; Agent
-   * preset reuses `/preset` when `ctx.agentPresets` is mounted; Permission
+   * DeepSeek search key, endpoint, and `maxUses` when that namespace is
+   * registered; Shell writes `timeoutMs` and `maxOutputBytes` when that
+   * namespace is registered; Agent loop writes `maxParallelToolCalls` when
+   * that namespace is registered; Agent preset reuses `/preset` when
+   * `ctx.agentPresets` is mounted; Default preset writes
+   * `agent-presets.default`; Permission
    * switches the preset through the mounted `ctx.get('permissionPresets')`
    * service; Sections lists `ctx.settings.describe({ redactSecrets: true })`
    * namespaces and field names; Settings file notices
@@ -912,6 +996,7 @@ export class TuiApp {
           if (item.value === 'theme') this.openThemePicker()
           else if (item.value === 'permission') this.openPermissionPresetPicker()
           else if (item.value === 'preset') void this.openPresetPicker()
+          else if (item.value === 'default-preset') void this.openDefaultPresetPicker()
           else if (item.value === 'inventory') this.openInventoryPicker()
           else if (item.value === 'models') void this.openModelsPicker()
           else if (item.value === 'web-search') void this.openWebSearchActions()
@@ -1179,8 +1264,9 @@ export class TuiApp {
   }
 
   /**
-   * Web search actions: Set / Clear API key and Set / Clear base URL for
-   * `web-search-deepseek`. The default key reference is `DEEPSEEK_API_KEY`.
+   * Web search actions: Set / Clear API key, Set / Clear base URL, and Set /
+   * Clear `maxUses` for `web-search-deepseek`. The default key reference is
+   * `DEEPSEEK_API_KEY`.
    */
   private async openWebSearchActions(): Promise<void> {
     const operation = this.beginOverlayOperation()
@@ -1199,15 +1285,18 @@ export class TuiApp {
       }
       const section = this.webSearchSection()
       const canClearBaseUrl = section !== undefined && baseUrlOf(section, []) !== undefined
+      const user = this.sectionUser(WEB_SEARCH_SETTINGS_NS)
+      const canClearMaxUses = user !== false && userNamesField(user, WEB_SEARCH_MAX_USES_FIELD)
       if (!this.canCommitOverlay(operation)) return
       const picker = new OverlayPicker(
         'Web search',
-        providerCredentialRows({
+        webSearchActionRows({
           canClear,
           canClearBaseUrl,
           canSetDisplayName: false,
           canClearDisplayName: false,
           canLogin: false,
+          canClearMaxUses,
         }),
         '↑/↓ · Enter · Esc close',
         {
@@ -1217,6 +1306,17 @@ export class TuiApp {
             else if (item.value === 'clear-key') void this.clearWebSearchKey()
             else if (item.value === 'set-url') void this.promptProviderBaseUrl(this.webSearchEntry())
             else if (item.value === 'clear-url') void this.clearProviderBaseUrl(this.webSearchEntry())
+            else if (item.value === 'set-uses') {
+              void this.promptSectionPositiveInt(
+                'Web search max uses', 'count', WEB_SEARCH_SETTINGS_NS, WEB_SEARCH_MAX_USES_FIELD,
+                'max uses stored for Web search',
+              )
+            }
+            else if (item.value === 'clear-uses') {
+              void this.clearSectionField(
+                WEB_SEARCH_SETTINGS_NS, WEB_SEARCH_MAX_USES_FIELD, 'max uses cleared for Web search',
+              )
+            }
           },
           onCancel: () => { this.hideOverlay() },
         },
@@ -1736,10 +1836,10 @@ export class TuiApp {
   }
 
   /**
-   * `/sessions [id]`: pick a top-level session (this cwd first, then other
-   * recorded cwds) when omitted, then resume it in-process. The current
-   * session is flushed only after the next agent is live. The process cwd
-   * does not change.
+   * `/sessions [id]`: pick a conversation (this cwd first, then other
+   * recorded cwds; ordinary forks and subagent-origin children included) when
+   * omitted, then resume it in-process. The current session is flushed only
+   * after the next agent is live. The process cwd does not change.
    * @param sessionId - a persisted session id, or empty to open the picker.
    */
   async startSessions(sessionId: string): Promise<void> {
@@ -1789,22 +1889,18 @@ export class TuiApp {
   }
 
   /**
-   * Top-level sessions across recorded cwds, this process cwd first, with
-   * folded titles when cheap.
+   * Conversations across recorded cwds, this process cwd first, with
+   * folded titles when cheap. Ordinary forks and subagent-origin children
+   * are included.
    * @param query - the mounted session-query service.
-   * @returns picker rows, always including the live session when it is switchable.
+   * @returns picker rows, always including the live session.
    */
   private async listSwitchableSessions(query: SessionQueryEngine): Promise<SessionPickerEntry[]> {
-    const records = await query.filterSessions([
-      { kind: 'parent', values: [null] },
-    ])
+    const records = await query.filterSessions([])
     const current = this.agent
     const listed = new Map<string, SessionRecord>()
-    for (const record of records) {
-      if (!isSwitchableSession(record.header)) continue
-      listed.set(record.header.id, record)
-    }
-    if (current !== undefined && isSwitchableSession(current.session.header)) {
+    for (const record of records) listed.set(record.header.id, record)
+    if (current !== undefined) {
       listed.set(current.id, {
         header: current.session.header,
         live: true,
@@ -1928,6 +2024,94 @@ export class TuiApp {
   }
 
   /**
+   * Overlay of mountable presets that writes `agent-presets.default`.
+   * Broken rows are omitted; Clear appears when the user layer names
+   * `default`. The next `/new` reads the live default.
+   */
+  private async openDefaultPresetPicker(): Promise<void> {
+    const operation = this.beginOverlayOperation()
+    if (operation === undefined) return
+    try {
+      const presets = this.ctx.get('agentPresets')
+      if (presets === undefined) {
+        this.notice('agent presets are not mounted')
+        return
+      }
+      const listed = await presets.list()
+      const user = this.sectionUser(AGENT_PRESET_SETTINGS_NS)
+      const canClear = user !== false && userNamesField(user, 'default')
+      const rows = defaultPresetRows(listed, presets.defaultId, canClear)
+      if (rows.length === 0) {
+        this.notice('no mountable agent presets')
+        return
+      }
+      if (!this.canCommitOverlay(operation)) return
+      const picker = new OverlayPicker(
+        'Default preset',
+        rows,
+        '↑/↓ · Enter set · Esc close',
+        {
+          onSelect: (item) => {
+            this.hideOverlay()
+            if (item.value === CLEAR_DEFAULT_PRESET) {
+              void this.clearSectionField(
+                AGENT_PRESET_SETTINGS_NS, 'default', 'default preset cleared',
+              )
+              return
+            }
+            void this.applyDefaultPreset(item.value)
+          },
+          onCancel: () => { this.hideOverlay() },
+        },
+        presets.defaultId,
+      )
+      this.overlay = showPicker(operation.tui, picker)
+    } finally {
+      this.finishOverlayOperation(operation)
+    }
+  }
+
+  /**
+   * Persist one mountable preset as the standing default. Running sessions
+   * keep the composition they began with. A pick that is already the default
+   * is a no-op.
+   * @param presetId - the roster id to store.
+   */
+  private async applyDefaultPreset(presetId: string): Promise<void> {
+    const presets = this.ctx.get('agentPresets')
+    if (presets === undefined) {
+      this.notice('agent presets are not mounted')
+      return
+    }
+    if (presets.defaultId === presetId) {
+      this.notice(`default preset already ${presetId}`)
+      return
+    }
+    const found = (await presets.list()).find(preset => preset.id === presetId)
+    if (found === undefined) {
+      this.notice(`preset ${presetId} is not on the roster`)
+      return
+    }
+    if (found.broken !== undefined) {
+      this.notice(`preset ${presetId} is broken: ${found.broken}`)
+      return
+    }
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) {
+      this.notice('settings are not mounted')
+      return
+    }
+    try {
+      await settings.mutate(settingsNamespace(AGENT_PRESET_SETTINGS_NS), [
+        { op: 'set', path: ['default'], value: presetId },
+      ])
+      this.noticeProviderWrite(`default preset ${presetId}`, AGENT_PRESET_SETTINGS_NS)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
    * Overlay of mountable presets from `ctx.agentPresets.list()`.
    */
   private async openPresetPicker(): Promise<void> {
@@ -1998,6 +2182,138 @@ export class TuiApp {
   }
 
   /**
+   * `/new`: create a blank session in-process and switch to it. The current
+   * session is flushed only after the next agent is live. The process cwd
+   * does not change. The new session joins the roster default, so `/preset`
+   * can switch it while it is still blank.
+   */
+  async startNew(): Promise<void> {
+    if (this.agent?.status === 'running') {
+      this.notice('finish the current turn before starting a new session')
+      return
+    }
+    const agents = this.ctx.get('agents')
+    if (agents === undefined) {
+      this.notice('no agent registry is mounted')
+      return
+    }
+    const current = this.selection?.current
+    if (current === undefined) {
+      this.notice('no model is selected')
+      return
+    }
+    let next: AgentHandle
+    try {
+      next = await this.createSession(agents, { provider: current.provider, model: current.model })
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+      return
+    }
+    await this.adoptHandle(next, `new session ${next.agent.id}`)
+  }
+
+  /**
+   * `/rename [title]`: pin this session's title through `ctx.sessionTitle`.
+   * An empty argument opens a text form. A running turn may rename.
+   * @param title - the submitted title, or empty to prompt.
+   */
+  async startRename(title: string): Promise<void> {
+    if (title.length > 0) {
+      this.applyRename(title)
+      return
+    }
+    await this.promptRename()
+  }
+
+  /**
+   * Prompt for a session title and pin it.
+   */
+  private async promptRename(): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const form = new LoginTextForm('Rename session', 'title', false)
+    this.overlay = tui.showOverlay(form, { anchor: 'bottom-center', width: '90%', maxHeight: '40%' })
+    try {
+      const draft = await form.wait(this.abort.signal)
+      if (draft.trim().length === 0) {
+        this.notice('title is blank')
+        return
+      }
+      this.applyRename(draft)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message !== LOGIN_CANCELLED) this.notice(message)
+    } finally {
+      this.hideOverlay()
+    }
+  }
+
+  /**
+   * Pin `title` on the live session. Missing `ctx.sessionTitle` notices.
+   * @param title - raw user input; the service normalizes it.
+   */
+  private applyRename(title: string): void {
+    const agent = this.agent
+    if (agent === undefined) return
+    const titles = this.ctx.get('sessionTitle')
+    if (titles === undefined) {
+      this.notice('session titles are not mounted')
+      return
+    }
+    try {
+      const snapshot = titles.rename(agent.session, title)
+      this.notice(`renamed ${snapshot.title}`)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
+   * `/fork`: copy this session through `ctx.sessions.fork` at the last
+   * completed-turn boundary, then resume the child in-process. A running
+   * turn must finish first. The process cwd does not change.
+   */
+  async startFork(): Promise<void> {
+    if (this.agent?.status === 'running') {
+      this.notice('finish the current turn before forking this session')
+      return
+    }
+    const agent = this.agent
+    const sessions = this.ctx.get('sessions')
+    if (agent === undefined || sessions === undefined) {
+      this.notice('no session store is mounted')
+      return
+    }
+    const agents = this.ctx.get('agents')
+    if (agents === undefined) {
+      this.notice('no agent registry is mounted')
+      return
+    }
+    const current = this.selection?.current
+    if (current === undefined) {
+      this.notice('no model is selected')
+      return
+    }
+    let child
+    try {
+      child = sessions.fork(agent.session)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+      return
+    }
+    let next: AgentHandle
+    try {
+      next = await this.resumeSession(agents, child.id, {
+        provider: current.provider, model: current.model,
+      })
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+      return
+    }
+    await this.adoptHandle(next, `forked session ${next.agent.id}`)
+  }
+
+  /**
    * Resume `id` in-process. Resume first so a failure leaves the current Agent.
    * @param id - persisted session id.
    */
@@ -2022,6 +2338,17 @@ export class TuiApp {
       this.notice(error instanceof Error ? error.message : String(error))
       return
     }
+    await this.adoptHandle(next, `session ${next.agent.id}`)
+  }
+
+  /**
+   * Make `next` the live Agent. The previous handle is flushed and disposed
+   * only after the new one is idle, so a failed create/resume never reaches
+   * here.
+   * @param next - the handle that just became ready.
+   * @param notice - the line painted after the switch.
+   */
+  private async adoptHandle(next: AgentHandle, notice: string): Promise<void> {
     const previous = this.handle
     this.handle = next
     this.agent = next.agent
@@ -2029,6 +2356,7 @@ export class TuiApp {
     this.hideWorking()
     this.setBusy(false)
     this.subagents?.reset()
+    this.agentTranscript = undefined
     this.disposeStatsListener?.()
     this.disposeStatsListener = undefined
     this.transcript.reset()
@@ -2037,7 +2365,7 @@ export class TuiApp {
     this.wireStats()
     this.footer.setModel(modelLabel(this.selection?.current))
     void this.preheatContextWindow(this.selection?.current)
-    this.notice(`session ${next.agent.id}`)
+    this.notice(notice)
     this.tui?.requestRender()
     if (previous !== undefined) {
       try {
@@ -2189,6 +2517,62 @@ export class TuiApp {
   }
 
   /**
+   * Open the Agent Hub roster (Alt+A or `/agents`): one picker row per tracked
+   * run, live or recently settled. Selecting a row opens
+   * {@link openAgentTranscript} for that run's child session.
+   */
+  openAgentHub(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const entries = this.subagents?.roster() ?? []
+    if (entries.length === 0) {
+      this.notice('no subagent runs to inspect')
+      return
+    }
+    const items: SelectItem[] = entries.map(entry => ({
+      label: `⏵ ${entry.label}`,
+      value: entry.runId,
+      description: entry.status,
+    }))
+    const picker = new OverlayPicker('Agents', items, 'enter open · esc close', {
+      onSelect: (item) => {
+        const entry = entries.find(candidate => candidate.runId === item.value)
+        this.hideOverlay()
+        if (entry !== undefined) this.openAgentTranscript(entry)
+      },
+      onCancel: () => { this.hideOverlay() },
+    })
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Open a fullscreen live transcript overlay for one subagent run. The child
+   * session's existing events replay on construction, and the `session/event`
+   * listener folds live events while the overlay is open.
+   * @param entry - the roster row the user selected.
+   */
+  openAgentTranscript(entry: SubagentRosterEntry): void {
+    const tui = this.tui
+    if (tui === undefined) return
+    const agent = this.ctx.get('agents')?.get(entry.childSessionId)
+    const session = agent?.session ?? this.ctx.get('sessions')?.get(entry.childSessionId)
+    if (session === undefined) {
+      this.notice('subagent session no longer available')
+      return
+    }
+    const lookup: ToolLookup = name => this.ctx.get('tools')?.get(name, agent)
+    const overlay = new AgentTranscriptOverlay(
+      `⏵ ${entry.label}`,
+      session,
+      lookup,
+      () => tui.terminal.rows,
+      { onClose: () => { this.agentTranscript = undefined; this.hideOverlay() } },
+    )
+    this.agentTranscript = { sessionId: entry.childSessionId, overlay }
+    this.overlay = showAgentTranscriptOverlay(tui, overlay)
+  }
+
+  /**
    * Toggle the running-turn chrome: footer hint, Thinking loader, and progress.
    * @param busy - true while the Agent is running a turn.
    */
@@ -2294,6 +2678,7 @@ export class TuiApp {
     this.invalidateOverlayOperation()
     this.overlay?.hide()
     this.overlay = undefined
+    this.agentTranscript = undefined
     this.listingModels = false
     this.tui?.requestRender()
   }

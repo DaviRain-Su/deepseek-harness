@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-15-tui-rename-fork.md
+2026-08-15-tui-rename-fork.md: 28eaaa83b171865b4fa7867092057dbaf89618cc
+2026-08-15-tui-rename-fork.zh.md: df2de1bc54e2b1b34dd863078e66856b5342e8b0

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-tui-sessions-across-cwds.md
-2026-08-14-tui-sessions-across-cwds.md: 5006db0ea242ba9ddeef488e1d3510b13836055c
-2026-08-14-tui-sessions-across-cwds.zh.md: fecf61a3072aec78edd7822189ceb401986ddae2
+2026-08-14-tui-sessions-across-cwds.md: fc50222573e5d9dd6ab1a3523a9a0ac1fcf54c25
+2026-08-14-tui-sessions-across-cwds.zh.md: 82feb149569d5ef11fa1e8b4c5e05fe484550b99

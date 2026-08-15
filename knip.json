@@ -789,6 +789,7 @@
       ],
       "ignoreDependencies": [
         "@deepseek-ai/dsh-code-runtime-worker-thread",
+        "@deepseek-ai/dsh-cordis-host-runner",
         "@types/bun"
       ]
     },

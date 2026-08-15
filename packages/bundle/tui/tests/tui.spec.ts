@@ -68,13 +68,12 @@ async function bench(script: Script = {}): Promise<{
   await ctx.plugin(UserQuestionService)
   await ctx.plugin(ApprovalService)
   await ctx.plugin(AgentDefaultModelConfig, { provider: 'test-provider', model: 'test-model' })
-  const createAgent = async (
+  const bindAgent = async (
     ownerCtx: Context,
-    options: CreateAgentOptions,
+    session: Session,
+    options: Pick<CreateAgentOptions, 'agentOptions' | 'setup' | 'signal'>,
+    runBefore: boolean,
   ): Promise<AgentHandle> => {
-    const session = ctx.sessions.create(options.sessionId, {
-      ...options.meta === undefined ? {} : { meta: options.meta },
-    })
     let idle = Promise.resolve()
     let status: AgentStatus = 'idle'
     const agent = {} as Agent
@@ -120,18 +119,37 @@ async function bench(script: Script = {}): Promise<{
       set: (value: AgentStatus) => { status = value },
     })
     await options.setup?.(agentCtx)
-    script.before?.(session)
+    if (runBefore) script.before?.(session)
     ctx.agents.register(agent)
     return { agent, dispose: async () => { agentDisposals += 1 } }
   }
+  const createAgent = async (
+    ownerCtx: Context,
+    options: CreateAgentOptions,
+  ): Promise<AgentHandle> => {
+    const session = ctx.sessions.create(options.sessionId, {
+      ...options.meta === undefined ? {} : { meta: options.meta },
+    })
+    return bindAgent(ownerCtx, session, options, true)
+  }
   ctx.agents.setFactory({
     createAgent,
-    resume: (ownerCtx: Context, options: ResumeAgentOptions) => createAgent(ownerCtx, {
-      sessionId: options.resumeSessionId,
-      ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions },
-      ...options.setup === undefined ? {} : { setup: options.setup },
-      ...options.signal === undefined ? {} : { signal: options.signal },
-    }),
+    resume: async (ownerCtx: Context, options: ResumeAgentOptions) => {
+      const existing = ctx.sessions.get(options.resumeSessionId)
+      if (existing !== undefined) {
+        return bindAgent(ownerCtx, existing, {
+          ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions },
+          ...options.setup === undefined ? {} : { setup: options.setup },
+          ...options.signal === undefined ? {} : { signal: options.signal },
+        }, false)
+      }
+      return createAgent(ownerCtx, {
+        sessionId: options.resumeSessionId,
+        ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions },
+        ...options.setup === undefined ? {} : { setup: options.setup },
+        ...options.signal === undefined ? {} : { signal: options.signal },
+      })
+    },
   })
   const fake = new FakeTerminal()
   return {
@@ -229,7 +247,7 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('renders subagent lifecycle cards, child activity, and the running count', async () => {
+  it('renders subagent lifecycle cards, child activity, and the per-run footer status', async () => {
     const test = await bench()
     const { app, code } = await test.run()
     expect(test.fake.title).toBe('dsh')
@@ -238,7 +256,7 @@ describe('tui runtime', () => {
     test.ctx.emit('subagent/start', {
       runId: 'run-1', provider: 'in-process', id: childId, local: true,
     } as never)
-    expect(app['footer'].render(80)[1]).toContain('1 subagent running')
+    expect(app['footer'].render(80)[1]).toContain('⏵ subagent · in-process: thinking')
     expect(test.fake.title).toBe('dsh · 1 subagent running')
     expect(test.fake.progress).toBe(true)
     const child = test.ctx.sessions.create(childId)
@@ -248,6 +266,7 @@ describe('tui runtime', () => {
     child.append('tool/call', {
       turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: '{}',
     })
+    expect(app['footer'].render(80)[1]).toContain('⏵ 调查任务: running bash')
     test.ctx.emit('subagent/end', {
       runId: 'run-1', provider: 'in-process', id: childId, local: true, stopReason: 'completed',
     } as never)
@@ -259,6 +278,58 @@ describe('tui runtime', () => {
     expect(text).toContain('⏵ 调查任务 — completed')
     expect(text).toContain('● bash')
     expect(text).toContain('1 tool call · completed')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('opens the Agent Hub roster empty, then a live transcript overlay for a run', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    // No runs yet: the hub notices instead of opening an overlay.
+    app['openAgentHub']()
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('no subagent runs to inspect')
+
+    const childId = SessionId('child-hub')
+    test.ctx.emit('subagent/start', {
+      runId: 'run-1', provider: 'in-process', id: childId, local: true,
+    } as never)
+    const child = test.ctx.sessions.create(childId)
+    child.append('subagent/descriptor', {
+      version: 2, mode: 'one-shot', provider: 'in-process', label: '调查任务',
+    })
+    child.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: '{}',
+    })
+
+    // The hub now opens a picker overlay.
+    app['openAgentHub']()
+    expect(app['overlay']).toBeDefined()
+    app['hideOverlay']()
+    expect(app['overlay']).toBeUndefined()
+
+    // Open the run's transcript overlay directly. It replays the child log,
+    // so the heading and the child's tool call both render.
+    app['openAgentTranscript']({
+      runId: 'run-1', childSessionId: childId, label: '调查任务',
+      provider: 'in-process', status: 'running bash', running: true,
+    })
+    const overlay = app['agentTranscript']?.overlay
+    expect(overlay).toBeDefined()
+    const view = overlay.render(80).join('\n')
+    expect(view).toContain('⏵ 调查任务')
+    expect(view).toContain('bash')
+
+    // A live child event folds into the open overlay.
+    child.append('tool/call', {
+      turn: 1, step: 2, callId: CallId('c2'), name: 'grep', arguments: '{}',
+    })
+    expect(overlay.render(80).join('\n')).toContain('grep')
+
+    // Escape dismisses the overlay and clears the routing state.
+    overlay.handleInput('\u001b')
+    expect(app['agentTranscript']).toBeUndefined()
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
@@ -664,6 +735,11 @@ describe('tui runtime', () => {
     })
     expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['baseURL'] })
     expect(app['transcript'].container.render(80).join('\n')).toContain('base URL cleared for Web search')
+    await app['storeSectionNumber']('web-search-deepseek', 'maxUses', 3)
+    expect(mutate.at(-1)).toEqual({ op: 'set', path: ['maxUses'], value: 3 })
+    await app['clearSectionField']('web-search-deepseek', 'maxUses', 'max uses cleared for Web search')
+    expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['maxUses'] })
+    expect(app['transcript'].container.render(80).join('\n')).toContain('max uses cleared for Web search')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
@@ -945,6 +1021,7 @@ describe('tui runtime', () => {
     test.ctx.provide('agentPresets', {
       list: () => Promise.resolve([{ id: 'standard', name: 'Standard' }]),
       composedPreset: () => 'standard',
+      defaultId: 'standard',
     } as never)
     await app.submit('/settings')
     test.fake.type('\x1b[B')
@@ -956,6 +1033,48 @@ describe('tui runtime', () => {
     expect(app['overlay']).toBeDefined()
     test.fake.type('\x1b')
     expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('stores and clears the standing default preset from /settings', async () => {
+    const test = await bench()
+    const mutate: Array<{ op: string; path: readonly string[]; value?: unknown }> = []
+    let defaultId = 'standard'
+    const { app, code } = await test.run()
+    test.ctx.provide('agentPresets', {
+      list: () => Promise.resolve([
+        { id: 'standard', name: 'Standard' },
+        { id: 'code', name: 'Code' },
+        { id: 'mine', broken: 'empty composition' },
+      ]),
+      get defaultId() { return defaultId },
+      composedPreset: () => 'standard',
+    } as never)
+    test.ctx.provide('settings', {
+      describe: () => [{ ns: 'agent-presets', applies: 'live', user: { default: 'standard' } }],
+      mutate: (_ns: string, ops: ReadonlyArray<{ op: string; path: readonly string[]; value?: unknown }>) => {
+        mutate.push(...ops)
+        const last = ops.at(-1)
+        if (last?.op === 'set' && last.path[0] === 'default' && typeof last.value === 'string') {
+          defaultId = last.value
+        }
+        if (last?.op === 'unset' && last.path[0] === 'default') defaultId = 'standard'
+        return Promise.resolve()
+      },
+    } as never)
+    await app['applyDefaultPreset']('standard')
+    expect(mutate).toEqual([])
+    expect(app['transcript'].container.render(80).join('\n')).toContain('default preset already standard')
+    await app['applyDefaultPreset']('mine')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('preset mine is broken')
+    await app['applyDefaultPreset']('code')
+    expect(mutate).toEqual([{ op: 'set', path: ['default'], value: 'code' }])
+    expect(app['transcript'].container.render(80).join('\n')).toContain('default preset code')
+    await app['clearSectionField']('agent-presets', 'default', 'default preset cleared')
+    expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['default'] })
+    expect(app['transcript'].container.render(80).join('\n')).toContain('default preset cleared')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
@@ -1609,7 +1728,7 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('lists a top-level session from another cwd on /sessions', async () => {
+  it('lists a fork and a subagent-origin child from another cwd on /sessions', async () => {
     const test = await bench()
     const { app, code } = await test.run()
     const current = app['agent']!.id
@@ -1618,8 +1737,24 @@ describe('tui runtime', () => {
       filterSessions: async (next: unknown) => {
         filters = next
         return [
-          { header: { version: 0, id: current, createdAt: 2, cwd: process.cwd() }, live: true, persisted: true },
+          { header: { version: 0, id: current, createdAt: 3, cwd: process.cwd() }, live: true, persisted: true },
+          {
+            header: {
+              version: 0, id: 'session-fork', createdAt: 2, cwd: process.cwd(),
+              parentSession: current,
+            },
+            live: false,
+            persisted: true,
+          },
           { header: { version: 0, id: 'session-other', createdAt: 1, cwd: '/other' }, live: false, persisted: true },
+          {
+            header: {
+              version: 0, id: 'session-child', createdAt: 4, cwd: process.cwd(),
+              origin: 'subagent', parentSession: current,
+            },
+            live: false,
+            persisted: true,
+          },
         ]
       },
       readTitleSnapshots: async (ids: string[]) => ids.map(id => ({
@@ -1629,12 +1764,132 @@ describe('tui runtime', () => {
       })),
     } as never)
     const listed = await app['listSwitchableSessions'](test.ctx.get('sessionQuery')!)
-    expect(filters).toEqual([{ kind: 'parent', values: [null] }])
-    expect(listed.map((entry: SessionPickerEntry) => entry.id)).toEqual([current, 'session-other'])
+    expect(filters).toEqual([])
+    expect(listed.map((entry: SessionPickerEntry) => entry.id))
+      .toEqual([current, 'session-child', 'session-fork', 'session-other'])
     await app.submit('/sessions')
     await Promise.resolve()
     await Promise.resolve()
     expect(app['overlay']).toBeDefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('starts a new session and refuses while a turn is running', async () => {
+    const test = await bench({
+      afterPrompt(session, message) { appendAssistant(session, message, 'hello') },
+    })
+    const { app, code } = await test.run()
+    await app.submit('/help')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('/new  Start a new session')
+    await app.submit('hello')
+    const current = app['agent']!
+    expect(app['transcript'].container.render(80).join('\n')).toContain('hello')
+    current.status = 'running'
+    await app.submit('/new')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('finish the current turn before starting a new session')
+    expect(app['agent']!.id).toBe(current.id)
+    current.status = 'idle'
+    await app.startNew()
+    expect(app['agent']!.id).not.toBe(current.id)
+    expect(app['sessionHeader']!.render(80).join('\n')).toContain(`session ${app['agent']!.id}`)
+    expect(app['transcript'].container.render(80).join('\n')).toContain(`new session ${app['agent']!.id}`)
+    expect(app['transcript'].container.render(80).join('\n')).not.toContain('hello')
+    expect(test.agentDisposals()).toBe(1)
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('renames this session and notices a missing title service', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/help')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('/rename  Rename this session')
+    await app.submit('/rename Pinned title')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('session titles are not mounted')
+    const renamed: string[] = []
+    test.ctx.provide('sessionTitle', {
+      rename: (_session: Session, title: string) => {
+        if (title.trim().length === 0) throw new Error('session title must contain visible characters')
+        renamed.push(title.trim())
+        return { title: title.trim() }
+      },
+    } as never)
+    await app.submit('/rename Pinned title')
+    expect(renamed).toEqual(['Pinned title'])
+    expect(app['transcript'].container.render(80).join('\n')).toContain('renamed Pinned title')
+    await app.startRename('   ')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('session title must contain visible characters')
+    await app.submit('/rename')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('From form')
+    test.fake.type('\r')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(renamed).toEqual(['Pinned title', 'From form'])
+    expect(app['transcript'].container.render(80).join('\n')).toContain('renamed From form')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('forks this session and refuses while a turn is running', async () => {
+    const test = await bench({
+      afterPrompt(session, message) { appendAssistant(session, message, 'hello') },
+    })
+    const { app, code } = await test.run()
+    await app.submit('/help')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('/fork  Fork this session')
+    await app.submit('hello')
+    const current = app['agent']!
+    expect(app['transcript'].container.render(80).join('\n')).toContain('hello')
+    current.status = 'running'
+    await app.submit('/fork')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('finish the current turn before forking this session')
+    expect(app['agent']!.id).toBe(current.id)
+    current.status = 'idle'
+    await app.startFork()
+    expect(app['agent']!.id).not.toBe(current.id)
+    expect(app['agent']!.session.header.parentSession).toBe(current.id)
+    expect(app['sessionHeader']!.render(80).join('\n')).toContain(`session ${app['agent']!.id}`)
+    expect(app['transcript'].container.render(80).join('\n')).toContain(`forked session ${app['agent']!.id}`)
+    expect(app['transcript'].container.render(80).join('\n')).toContain('hello')
+    expect(test.agentDisposals()).toBe(1)
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('unlocks /preset after /new on a started session', async () => {
+    const test = await bench()
+    const recomposed: string[] = []
+    test.ctx.provide('agentPresets', {
+      list: () => Promise.resolve([
+        { id: 'standard', name: 'Standard' },
+        { id: 'code', name: 'Code' },
+      ]),
+      resolve: () => Promise.resolve({ id: 'standard' }),
+      mount: () => Promise.resolve({ id: 'standard' }),
+      recompose: (_ctx: unknown, id: string) => {
+        recomposed.push(id)
+        return Promise.resolve({ id })
+      },
+      composedPreset: () => 'standard',
+    } as never)
+    const { app, code } = await test.run()
+    app['agent']?.session.append('turn/start', { turn: 1 })
+    await app.submit('/preset code')
+    expect(recomposed).toEqual([])
+    await app.startNew()
+    await app.submit('/preset code')
+    expect(recomposed).toEqual(['code'])
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
@@ -1650,12 +1905,31 @@ describe('tui runtime', () => {
       .toContain('finish the current turn before switching sessions')
     expect(app['agent']!.id).toBe(current.id)
     current.status = 'idle'
-    await app.submit('/sessions session-other')
-    await Promise.resolve()
-    await Promise.resolve()
+    await app.startSessions('session-other')
     expect(app['agent']!.id).toBe('session-other')
     expect(app['sessionHeader']!.render(80).join('\n')).toContain('session session-other')
     expect(app['transcript'].container.render(80).join('\n')).toContain('session session-other')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('switches to a persisted subagent-origin child on /sessions', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const current = app['agent']!
+    const child = test.ctx.sessions.create(SessionId('session-child'), {
+      meta: {
+        origin: 'subagent',
+        parentSession: SessionId(current.id),
+        cwd: process.cwd(),
+      },
+    })
+    await app.startSessions(child.id)
+    expect(app['agent']!.id).toBe(child.id)
+    expect(app['agent']!.session.header.origin).toBe('subagent')
+    expect(app['sessionHeader']!.render(80).join('\n')).toContain('session session-child')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('session session-child')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()

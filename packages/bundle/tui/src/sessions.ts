@@ -1,7 +1,7 @@
 /**
- * `/sessions` catalog: top-level sessions across recorded cwds, this process
- * cwd first, labelled from a log-backed title when the query service can fold
- * one.
+ * `/sessions` catalog: conversations across recorded cwds, this process cwd
+ * first, including ordinary forks and subagent-origin children. Labelled from
+ * a log-backed title when the query service can fold one.
  * @module @deepseek-ai/dsh-tui/sessions
  */
 
@@ -17,18 +17,6 @@ export interface SessionPickerEntry {
   readonly header: SessionHeader
   /** Latest folded title, when the query service observed one. */
   readonly title?: string
-}
-
-/**
- * Whether a persisted session belongs on the TUI picker: top-level (no parent,
- * not a subagent child). Cwd is not a filter; {@link sortSessionPickerEntries}
- * groups this process cwd first.
- * @param header - the session's storage metadata.
- * @returns true when the row should appear.
- */
-export function isSwitchableSession(header: SessionHeader): boolean {
-  if (header.origin === 'subagent') return false
-  return header.parentSession === undefined
 }
 
 /**
@@ -91,8 +79,8 @@ export function sortSessionPickerEntries(
 }
 
 /**
- * Build one picker row: title or id, with created-at, formatted cwd, and an
- * optional current mark.
+ * Build one picker row: title or id, with created-at, formatted cwd, an
+ * optional `subagent` mark, and an optional current mark.
  * @param entry - the catalog row.
  * @param currentId - the live TUI session id, when any.
  * @param home - `HOME` / `USERPROFILE`; omitted when the process has neither.
@@ -111,6 +99,7 @@ export function sessionPickerItem(
   const description = [
     created,
     ...cwd === undefined ? [] : [cwd],
+    ...entry.header.origin === 'subagent' ? ['subagent'] : [],
     ...current ? ['current'] : [],
   ].join(' · ')
   return {

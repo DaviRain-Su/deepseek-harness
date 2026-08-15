@@ -32,6 +32,12 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
+    # Host-plane services `tool-cordis` injects. The shipped `cordis` preset
+    # mounts that toolset; without this row it waits for dynamicCordisRunner
+    # and cordisInspect. The browser half stays off — TUI has no page.
+    - id: cordis-host-runner
+      name: '@deepseek-ai/dsh-cordis-host-runner'
+
     - id: tui-startup
       name: '@deepseek-ai/dsh-tui/startup'
 
