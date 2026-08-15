@@ -27,6 +27,7 @@ import {
   WEB_SEARCH_DEFAULT_KEY_REF,
   positiveIntRefusal,
   shellActionRows,
+  agentLoopActionRows,
   userNamesField,
   type PermissionPresetSource,
   type PluginInventorySource,
@@ -77,6 +78,8 @@ describe('settingsHubRows', () => {
       .toEqual(['theme', 'models', 'web-search', 'permission', 'inventory'])
     expect(settingsHubRows({ shell: true }).map(row => row.value))
       .toEqual(['theme', 'models', 'shell', 'permission', 'inventory'])
+    expect(settingsHubRows({ agentLoop: true }).map(row => row.value))
+      .toEqual(['theme', 'models', 'agent-loop', 'permission', 'inventory'])
     expect(settingsHubRows({ presets: true }).map(row => row.value))
       .toEqual(['theme', 'models', 'permission', 'preset', 'inventory'])
     expect(settingsHubRows({ sections: true }).map(row => row.value))
@@ -220,9 +223,18 @@ describe('userNamesField', () => {
 })
 
 describe('shellActionRows', () => {
-  it('always offers Set timeout and appends Clear when the user layer names it', () => {
-    expect(shellActionRows(false).map(row => row.value)).toEqual(['set-timeout'])
-    expect(shellActionRows(true).map(row => row.value)).toEqual(['set-timeout', 'clear-timeout'])
+  it('always offers Set timeout and Set output cap, and appends Clear when the user layer names that field', () => {
+    expect(shellActionRows({ canClearTimeout: false, canClearOutput: false }).map(row => row.value))
+      .toEqual(['set-timeout', 'set-output'])
+    expect(shellActionRows({ canClearTimeout: true, canClearOutput: true }).map(row => row.value))
+      .toEqual(['set-timeout', 'clear-timeout', 'set-output', 'clear-output'])
+  })
+})
+
+describe('agentLoopActionRows', () => {
+  it('always offers Set parallel cap and appends Clear when the user layer names it', () => {
+    expect(agentLoopActionRows(false).map(row => row.value)).toEqual(['set-parallel'])
+    expect(agentLoopActionRows(true).map(row => row.value)).toEqual(['set-parallel', 'clear-parallel'])
   })
 })
 

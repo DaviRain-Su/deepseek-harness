@@ -42,7 +42,7 @@ import { DiffOverlay, showDiffOverlay } from './diff-overlay.ts'
 import { OverlayPicker, showPicker } from './picker.ts'
 import { createApprovalAnswerer } from './approval.ts'
 import type { ApprovalOverlayHandle } from './approval.ts'
-import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, displayNameOf, displayNameRefusal, webSearchKeyRef, WEB_SEARCH_SETTINGS_NS, SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, userNamesField, positiveIntRefusal, shellActionRows, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
+import { promptPermissionPreset, settingsHubRows, inventoryRows, modelsRows, settingsSectionRows, settingsSectionFields, settingsSectionFieldRows, providerCredentialRows, deriveKeyRef, apiKeyEnvOf, apiKeyRefusal, baseUrlOf, baseUrlRefusal, displayNameOf, displayNameRefusal, webSearchKeyRef, WEB_SEARCH_SETTINGS_NS, SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, SHELL_OUTPUT_FIELD, AGENT_LOOP_SETTINGS_NS, AGENT_LOOP_PARALLEL_FIELD, userNamesField, positiveIntRefusal, shellActionRows, agentLoopActionRows, type PluginInventoryEntry, type ModelsProviderEntry, type SettingsSectionEntry } from './settings.ts'
 import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
 import { presetPickerItem, sessionBlank } from './presets.ts'
@@ -872,7 +872,9 @@ export class TuiApp {
    * Appearance reuses the theme picker; Models lists configurable providers
    * and writes API keys, base URLs, and display names; Web search writes the
    * DeepSeek search key and endpoint when that namespace is registered; Shell
-   * writes `timeoutMs` when that namespace is registered; Agent
+   * writes `timeoutMs` and `maxOutputBytes` when that namespace is
+   * registered; Agent loop writes `maxParallelToolCalls` when that namespace
+   * is registered; Agent
    * preset reuses `/preset` when `ctx.agentPresets` is mounted; Permission
    * switches the preset through the mounted `ctx.get('permissionPresets')`
    * service; Sections lists `ctx.settings.describe({ redactSecrets: true })`
@@ -891,6 +893,7 @@ export class TuiApp {
     const sections = typeof settings?.describe === 'function'
     const webSearch = descriptors.some(descriptor => String(descriptor.ns) === WEB_SEARCH_SETTINGS_NS)
     const shell = descriptors.some(descriptor => String(descriptor.ns) === SHELL_SETTINGS_NS)
+    const agentLoop = descriptors.some(descriptor => String(descriptor.ns) === AGENT_LOOP_SETTINGS_NS)
     const presets = this.ctx.get('agentPresets') !== undefined
     const picker = new OverlayPicker(
       'Settings',
@@ -900,6 +903,7 @@ export class TuiApp {
         presets,
         webSearch,
         shell,
+        agentLoop,
       }),
       '↑/↓ · Enter open · Esc close',
       {
@@ -912,6 +916,7 @@ export class TuiApp {
           else if (item.value === 'models') void this.openModelsPicker()
           else if (item.value === 'web-search') void this.openWebSearchActions()
           else if (item.value === 'shell') this.openShellActions()
+          else if (item.value === 'agent-loop') this.openAgentLoopActions()
           else if (item.value === 'sections') this.openSettingsSectionsPicker()
           else if (item.value === 'file' && documentPath !== undefined) this.notice(`settings file ${documentPath}`)
         },
@@ -1299,28 +1304,43 @@ export class TuiApp {
   }
 
   /**
-   * Shell timeout actions for the `shell` namespace. Clear appears only when
-   * the user layer names `timeoutMs`.
+   * Shell number-field actions for the `shell` namespace. Clear appears only
+   * when the user layer names that field.
    */
   private openShellActions(): void {
     const tui = this.tui
     if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
-    const settings = this.ctx.get('settings')
-    if (settings === undefined || typeof settings.describe !== 'function') {
+    const user = this.sectionUser(SHELL_SETTINGS_NS)
+    if (user === false) {
       this.notice('settings are not mounted')
       return
     }
-    const user = settings.describe({ redactSecrets: true })
-      .find(descriptor => String(descriptor.ns) === SHELL_SETTINGS_NS)?.user
     const picker = new OverlayPicker(
       'Shell',
-      shellActionRows(userNamesField(user, SHELL_TIMEOUT_FIELD)),
+      shellActionRows({
+        canClearTimeout: userNamesField(user, SHELL_TIMEOUT_FIELD),
+        canClearOutput: userNamesField(user, SHELL_OUTPUT_FIELD),
+      }),
       '↑/↓ · Enter · Esc close',
       {
         onSelect: (item) => {
           this.hideOverlay()
-          if (item.value === 'set-timeout') void this.promptShellTimeout()
-          else if (item.value === 'clear-timeout') void this.clearShellTimeout()
+          if (item.value === 'set-timeout') {
+            void this.promptSectionPositiveInt(
+              'Shell timeout (ms)', 'milliseconds', SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, 'timeout stored for Shell',
+            )
+          }
+          else if (item.value === 'clear-timeout') {
+            void this.clearSectionField(SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, 'timeout cleared for Shell')
+          }
+          else if (item.value === 'set-output') {
+            void this.promptSectionPositiveInt(
+              'Shell output cap (bytes)', 'bytes', SHELL_SETTINGS_NS, SHELL_OUTPUT_FIELD, 'output cap stored for Shell',
+            )
+          }
+          else if (item.value === 'clear-output') {
+            void this.clearSectionField(SHELL_SETTINGS_NS, SHELL_OUTPUT_FIELD, 'output cap cleared for Shell')
+          }
         },
         onCancel: () => { this.hideOverlay() },
       },
@@ -1329,22 +1349,82 @@ export class TuiApp {
   }
 
   /**
-   * Prompt for `timeoutMs` and store it through `ctx.settings.mutate`.
+   * Agent-loop parallel-cap actions. Clear appears only when the user layer
+   * names `maxParallelToolCalls`.
    */
-  private async promptShellTimeout(): Promise<void> {
+  private openAgentLoopActions(): void {
     const tui = this.tui
     if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
-    const form = new LoginTextForm('Shell timeout (ms)', 'milliseconds', false)
+    const user = this.sectionUser(AGENT_LOOP_SETTINGS_NS)
+    if (user === false) {
+      this.notice('settings are not mounted')
+      return
+    }
+    const picker = new OverlayPicker(
+      'Agent loop',
+      agentLoopActionRows(userNamesField(user, AGENT_LOOP_PARALLEL_FIELD)),
+      '↑/↓ · Enter · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          if (item.value === 'set-parallel') {
+            void this.promptSectionPositiveInt(
+              'Parallel tool-call cap', 'count', AGENT_LOOP_SETTINGS_NS, AGENT_LOOP_PARALLEL_FIELD,
+              'parallel cap stored for Agent loop',
+            )
+          }
+          else if (item.value === 'clear-parallel') {
+            void this.clearSectionField(
+              AGENT_LOOP_SETTINGS_NS, AGENT_LOOP_PARALLEL_FIELD, 'parallel cap cleared for Agent loop',
+            )
+          }
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * The redacted user layer for one namespace, or `false` when settings
+   * cannot describe.
+   * @param ns - the registered namespace id.
+   * @returns the user layer, `undefined` when none exists, or `false`.
+   */
+  private sectionUser(ns: string): unknown | false {
+    const settings = this.ctx.get('settings')
+    if (settings === undefined || typeof settings.describe !== 'function') return false
+    return settings.describe({ redactSecrets: true }).find(descriptor => String(descriptor.ns) === ns)?.user
+  }
+
+  /**
+   * Prompt for a positive integer and store it through `ctx.settings.mutate`.
+   * @param title - the form heading.
+   * @param placeholder - the empty-field hint.
+   * @param ns - the settings namespace.
+   * @param field - the section key.
+   * @param stored - the success notice.
+   */
+  private async promptSectionPositiveInt(
+    title: string,
+    placeholder: string,
+    ns: string,
+    field: string,
+    stored: string,
+  ): Promise<void> {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const form = new LoginTextForm(title, placeholder, false)
     this.overlay = tui.showOverlay(form, { anchor: 'bottom-center', width: '90%', maxHeight: '40%' })
     try {
       const draft = await form.wait(this.abort.signal)
-      const refusal = positiveIntRefusal(draft, SHELL_TIMEOUT_FIELD)
+      const refusal = positiveIntRefusal(draft, field)
       if (refusal !== undefined) {
         this.notice(refusal)
         return
       }
-      await this.storeShellTimeout(Number(draft.trim()))
-      this.noticeProviderWrite('timeout stored for Shell', SHELL_SETTINGS_NS)
+      await this.storeSectionNumber(ns, field, Number(draft.trim()))
+      this.noticeProviderWrite(stored, ns)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
       if (message !== LOGIN_CANCELLED) this.notice(message)
@@ -1354,22 +1434,37 @@ export class TuiApp {
   }
 
   /**
-   * Remove the user-layer `timeoutMs` so the composition default wins.
+   * Remove a user-layer number so the composition default wins.
+   * @param ns - the settings namespace.
+   * @param field - the section key.
+   * @param cleared - the success notice.
    */
-  private async clearShellTimeout(): Promise<void> {
+  private async clearSectionField(ns: string, field: string, cleared: string): Promise<void> {
     const settings = this.ctx.get('settings')
     if (settings === undefined) {
       this.notice('settings are not mounted')
       return
     }
     try {
-      await settings.mutate(settingsNamespace(SHELL_SETTINGS_NS), [
-        { op: 'unset', path: [SHELL_TIMEOUT_FIELD] },
-      ])
-      this.noticeProviderWrite('timeout cleared for Shell', SHELL_SETTINGS_NS)
+      await settings.mutate(settingsNamespace(ns), [{ op: 'unset', path: [field] }])
+      this.noticeProviderWrite(cleared, ns)
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  /**
+   * Write a positive integer on a settings section.
+   * @param ns - the settings namespace.
+   * @param field - the section key.
+   * @param value - a positive safe integer.
+   */
+  private async storeSectionNumber(ns: string, field: string, value: number): Promise<void> {
+    const settings = this.ctx.get('settings')
+    if (settings === undefined) {
+      throw new Error('settings are not mounted')
+    }
+    await settings.mutate(settingsNamespace(ns), [{ op: 'set', path: [field], value }])
   }
 
   /**
@@ -1377,13 +1472,14 @@ export class TuiApp {
    * @param value - a positive safe integer in milliseconds.
    */
   private async storeShellTimeout(value: number): Promise<void> {
-    const settings = this.ctx.get('settings')
-    if (settings === undefined) {
-      throw new Error('settings are not mounted')
-    }
-    await settings.mutate(settingsNamespace(SHELL_SETTINGS_NS), [
-      { op: 'set', path: [SHELL_TIMEOUT_FIELD], value },
-    ])
+    await this.storeSectionNumber(SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, value)
+  }
+
+  /**
+   * Remove the user-layer `timeoutMs` so the composition default wins.
+   */
+  private async clearShellTimeout(): Promise<void> {
+    await this.clearSectionField(SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, 'timeout cleared for Shell')
   }
 
   /**

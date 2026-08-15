@@ -20,7 +20,7 @@ Web 的 Models 页列出可配置的 LLM 提供方。TUI 已有 `/login`、`/log
 
 ## 后果
 
-`/settings` 列出外观、Models、`describe()` 列出 `web-search-deepseek` 时的 Web search（[TUI 可写 web search](2026-08-14-tui-writable-web-search.md)）、`describe()` 列出 `shell` 时的 Shell（[TUI 可写 shell timeout](2026-08-14-tui-writable-shell-timeout.md)）、权限、挂载了 `ctx.agentPresets` 时的 Agent preset（[TUI agent presets](2026-08-14-tui-agent-presets.md)）、Inventory，`describe` 可用时的 Sections（[TUI settings 分节](2026-08-14-tui-settings-sections.md)），以及 `documentPath` 存在时的 Settings file（[TUI settings 文件路径](2026-08-14-tui-settings-file-path.md)）。Models 是名册；凭据写入见后续笔记。
+`/settings` 列出外观、Models、`describe()` 列出 `web-search-deepseek` 时的 Web search（[TUI 可写 web search](2026-08-14-tui-writable-web-search.md)）、`describe()` 列出 `shell` 时的 Shell（[TUI 可写 shell timeout](2026-08-14-tui-writable-shell-timeout.md)）、`describe()` 列出 `agent-loop` 时的 Agent loop（[TUI 可写 agent-loop 上限](2026-08-14-tui-writable-agent-loop-cap.md)）、权限、挂载了 `ctx.agentPresets` 时的 Agent preset（[TUI agent presets](2026-08-14-tui-agent-presets.md)）、Inventory，`describe` 可用时的 Sections（[TUI settings 分节](2026-08-14-tui-settings-sections.md)），以及 `documentPath` 存在时的 Settings file（[TUI settings 文件路径](2026-08-14-tui-settings-file-path.md)）。Models 是名册；凭据写入见后续笔记。
 
 ## 测试
 

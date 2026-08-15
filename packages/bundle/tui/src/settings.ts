@@ -5,7 +5,9 @@
  * Models lists configurable providers and offers Set / Clear API key, Set /
  * Clear base URL, Set / Clear display name, plus Login; Web search writes the
  * DeepSeek search key and endpoint when that namespace is registered; Shell
- * writes `timeoutMs` when that namespace is registered; Agent preset reuses
+ * writes `timeoutMs` and `maxOutputBytes` when that namespace is registered;
+ * Agent loop writes `maxParallelToolCalls` when that namespace is registered;
+ * Agent preset reuses
  * `/preset` when the roster is mounted; Inventory is a read-only roster;
  * Sections lists namespaces and, when a section has field names, a name-only
  * field picker.
@@ -48,6 +50,8 @@ export interface SettingsHubOptions {
   webSearch?: boolean
   /** True when `describe()` lists the `shell` namespace. */
   shell?: boolean
+  /** True when `describe()` lists the `agent-loop` namespace. */
+  agentLoop?: boolean
 }
 
 /** Settings namespace of the DeepSeek search provider. */
@@ -62,9 +66,19 @@ export const SHELL_SETTINGS_NS = 'shell'
 /** Foreground command timeout field on the `shell` section. */
 export const SHELL_TIMEOUT_FIELD = 'timeoutMs'
 
+/** Per-stream output cap field on the `shell` section. */
+export const SHELL_OUTPUT_FIELD = 'maxOutputBytes'
+
+/** Settings namespace of the agent loop's user-owned knobs. */
+export const AGENT_LOOP_SETTINGS_NS = 'agent-loop'
+
+/** Parallel tool-call cap field on the `agent-loop` section. */
+export const AGENT_LOOP_PARALLEL_FIELD = 'maxParallelToolCalls'
+
 /** Hub rows for the /settings panels.
- * @param options - Settings file, Agent preset, Web search, Shell, and Sections rows when those seams exist.
- * @returns Appearance, Models, then Web search, Shell, Permission, Agent preset, Inventory, Sections, and Settings file when present.
+ * @param options - Settings file, Agent preset, Web search, Shell, Agent loop, and Sections rows when those seams exist.
+ * @returns Appearance, Models, then optional Web search, Shell, Agent loop,
+ *   Permission, Agent preset, Inventory, Sections, and Settings file.
  */
 export function settingsHubRows(options: SettingsHubOptions = {}): SelectItem[] {
   return [
@@ -74,7 +88,10 @@ export function settingsHubRows(options: SettingsHubOptions = {}): SelectItem[] 
       ? [{ value: 'web-search', label: 'Web search', description: 'DeepSeek search key and endpoint' }]
       : [],
     ...options.shell === true
-      ? [{ value: 'shell', label: 'Shell', description: 'Foreground command timeout' }]
+      ? [{ value: 'shell', label: 'Shell', description: 'Foreground timeout and output cap' }]
+      : [],
+    ...options.agentLoop === true
+      ? [{ value: 'agent-loop', label: 'Agent loop', description: 'Parallel tool-call cap' }]
       : [],
     { value: 'permission', label: 'Permission', description: 'Sandbox mode + approval policy preset' },
     ...options.presets === true
@@ -359,8 +376,7 @@ export function userNamesField(user: unknown, field: string): boolean {
 /**
  * Why a typed positive integer cannot be stored. An empty field is not a
  * failure — Escape cancels instead. Non-digits and zero refuse; the shell
- * schema is `z.number()` plus a positive-finite assert, so this does not
- * invent a maximum.
+ * schema is a positive integer, so this does not invent a maximum.
  * @param draft - the submitted digits, untrimmed.
  * @param field - the section key used in the notice (`timeoutMs`).
  * @returns a notice, or `undefined` when the integer can be stored.
@@ -373,17 +389,44 @@ export function positiveIntRefusal(draft: string, field: string): string | undef
   return undefined
 }
 
+/** Optional Clear rows on the Shell picker. */
+export interface ShellFieldActions {
+  /** Show Clear timeout when the user layer names `timeoutMs`. */
+  readonly canClearTimeout: boolean
+  /** Show Clear output cap when the user layer names `maxOutputBytes`. */
+  readonly canClearOutput: boolean
+}
+
 /**
- * Shell timeout actions. Set is always present; Clear appears when the user
- * layer names `timeoutMs`.
- * @param canClearTimeout - true when a user override exists.
+ * Shell number-field actions. Set timeout and Set output cap are always
+ * present; Clear appears when the user layer names that field.
+ * @param actions - which Clear rows to include.
  * @returns rows in declaration order.
  */
-export function shellActionRows(canClearTimeout: boolean): SelectItem[] {
+export function shellActionRows(actions: ShellFieldActions): SelectItem[] {
   return [
     { value: 'set-timeout', label: 'Set timeout', description: 'Foreground command timeout in ms' },
-    ...canClearTimeout
+    ...actions.canClearTimeout
       ? [{ value: 'clear-timeout', label: 'Clear timeout', description: 'Use the composition default' }]
+      : [],
+    { value: 'set-output', label: 'Set output cap', description: 'Per-stream output cap in bytes' },
+    ...actions.canClearOutput
+      ? [{ value: 'clear-output', label: 'Clear output cap', description: 'Use the composition default' }]
+      : [],
+  ]
+}
+
+/**
+ * Agent-loop parallel-cap actions. Set is always present; Clear appears when
+ * the user layer names `maxParallelToolCalls`.
+ * @param canClear - true when a user override exists.
+ * @returns rows in declaration order.
+ */
+export function agentLoopActionRows(canClear: boolean): SelectItem[] {
+  return [
+    { value: 'set-parallel', label: 'Set parallel cap', description: 'In-flight tool calls per step' },
+    ...canClear
+      ? [{ value: 'clear-parallel', label: 'Clear parallel cap', description: 'Use the composition default' }]
       : [],
   ]
 }

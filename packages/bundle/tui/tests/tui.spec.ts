@@ -703,6 +703,50 @@ describe('tui runtime', () => {
     await app['clearShellTimeout']()
     expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['timeoutMs'] })
     expect(app['transcript'].container.render(80).join('\n')).toContain('timeout cleared for Shell')
+    await app['storeSectionNumber']('shell', 'maxOutputBytes', 1_024)
+    expect(mutate.at(-1)).toEqual({ op: 'set', path: ['maxOutputBytes'], value: 1_024 })
+    await app['clearSectionField']('shell', 'maxOutputBytes', 'output cap cleared for Shell')
+    expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['maxOutputBytes'] })
+    expect(app['transcript'].container.render(80).join('\n')).toContain('output cap cleared for Shell')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('opens Agent loop from the /settings hub when that namespace is registered', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      describe: () => [{ ns: 'agent-loop', applies: 'live', user: { maxParallelToolCalls: 4 } }],
+    } as never)
+    await app.submit('/settings')
+    test.fake.type('\x1b[B')
+    test.fake.type('\x1b[B')
+    test.fake.type('\r')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\x1b')
+    expect(app['overlay']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('stores and clears the Agent loop parallel cap from /settings', async () => {
+    const test = await bench()
+    const mutate: Array<{ op: string; path: readonly string[]; value?: unknown }> = []
+    const { app, code } = await test.run()
+    test.ctx.provide('settings', {
+      describe: () => [{ ns: 'agent-loop', applies: 'live', user: { maxParallelToolCalls: 4 } }],
+      mutate: (_ns: string, ops: ReadonlyArray<{ op: string; path: readonly string[]; value?: unknown }>) => {
+        mutate.push(...ops)
+        return Promise.resolve()
+      },
+    } as never)
+    await app['storeSectionNumber']('agent-loop', 'maxParallelToolCalls', 2)
+    expect(mutate).toEqual([{ op: 'set', path: ['maxParallelToolCalls'], value: 2 }])
+    await app['clearSectionField']('agent-loop', 'maxParallelToolCalls', 'parallel cap cleared for Agent loop')
+    expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['maxParallelToolCalls'] })
+    expect(app['transcript'].container.render(80).join('\n')).toContain('parallel cap cleared for Agent loop')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
