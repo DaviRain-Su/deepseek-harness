@@ -698,9 +698,9 @@ describe('tui runtime', () => {
         return Promise.resolve()
       },
     } as never)
-    await app['storeShellTimeout'](8_000)
+    await app['storeSectionNumber']('shell', 'timeoutMs', 8_000)
     expect(mutate).toEqual([{ op: 'set', path: ['timeoutMs'], value: 8_000 }])
-    await app['clearShellTimeout']()
+    await app['clearSectionField']('shell', 'timeoutMs', 'timeout cleared for Shell')
     expect(mutate.at(-1)).toEqual({ op: 'unset', path: ['timeoutMs'] })
     expect(app['transcript'].container.render(80).join('\n')).toContain('timeout cleared for Shell')
     await app['storeSectionNumber']('shell', 'maxOutputBytes', 1_024)

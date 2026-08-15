@@ -1468,21 +1468,6 @@ export class TuiApp {
   }
 
   /**
-   * Write `timeoutMs` on the `shell` section.
-   * @param value - a positive safe integer in milliseconds.
-   */
-  private async storeShellTimeout(value: number): Promise<void> {
-    await this.storeSectionNumber(SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, value)
-  }
-
-  /**
-   * Remove the user-layer `timeoutMs` so the composition default wins.
-   */
-  private async clearShellTimeout(): Promise<void> {
-    await this.clearSectionField(SHELL_SETTINGS_NS, SHELL_TIMEOUT_FIELD, 'timeout cleared for Shell')
-  }
-
-  /**
    * Prompt for a secret API key and store it through credentials + settings.
    * @param provider - the roster row being edited.
    */
