@@ -1,7 +1,7 @@
-/** Footer chips and `/jobs` picker rows. */
+/** Footer chips, `/jobs` picker rows, and `/todos` picker rows. */
 
 import { describe, expect, it } from 'vitest'
-import { formatStatusChips, jobPickerItem, todoCounts } from '../src/status.ts'
+import { formatStatusChips, jobPickerItem, todoCounts, todoPickerItem } from '../src/status.ts'
 
 describe('formatStatusChips', () => {
   it('returns empty when nothing is active', () => {
@@ -41,6 +41,13 @@ describe('todoCounts', () => {
       { content: 'c', status: 'in_progress' },
       { content: 'd', status: 'completed' },
     ])).toEqual({ pending: 1, inProgress: 2, completed: 1, total: 4 })
+  })
+})
+
+describe('todoPickerItem', () => {
+  it('labels status and uses the list index as the value', () => {
+    expect(todoPickerItem({ content: 'Ship it', status: 'in_progress' }, 2))
+      .toEqual({ value: '2', label: 'in_progress · Ship it' })
   })
 })
 

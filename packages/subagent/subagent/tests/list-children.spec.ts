@@ -1212,3 +1212,45 @@ describe('SubagentRuntime.listDescendants', () => {
     )
   })
 })
+
+describe('SubagentRuntime.loadChildEvents', () => {
+  it('returns a resident child session events from the live store', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SubagentRuntime)
+    const childId = SessionId('live-child')
+    const child = ctx.sessions.create(childId)
+    child.append('turn/start', { turn: 1 })
+    child.append('subagent/descriptor', descriptorPayload('live child'))
+
+    const events = await ctx.subagents.loadChildEvents(childId)
+    expect(events).toBeDefined()
+    expect(events?.some(event => event.type === 'subagent/descriptor')).toBe(true)
+  })
+
+  it('inspects a cold child from persistence when it is not resident', async () => {
+    const { ctx } = await setup([])
+    const childId = await authorChild(
+      ctx,
+      'cold-child',
+      { origin: 'subagent', parentSession: SessionId('parent') },
+      childEvents(descriptorPayload('cold child')),
+    )
+    expect(ctx.get('sessions')?.get(childId)).toBeUndefined()
+
+    const events = await ctx.subagents.loadChildEvents(childId)
+    expect(events).toBeDefined()
+    expect(events?.some(event => event.type === 'subagent/descriptor')).toBe(true)
+  })
+
+  it('returns undefined for an unknown id when no live session and persistence has no row', async () => {
+    const { ctx } = await setup([])
+    expect(await ctx.subagents.loadChildEvents(SessionId('never-existed'))).toBeUndefined()
+  })
+
+  it('returns undefined when neither a session store nor persistence is mounted', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentRuntime)
+    expect(await ctx.subagents.loadChildEvents(SessionId('anything'))).toBeUndefined()
+  })
+})

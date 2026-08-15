@@ -14,7 +14,7 @@ import {
   type OverlayHandle,
   type TUI,
 } from '@oh-my-pi/pi-tui'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { TranscriptView, type ToolLookup } from './transcript.ts'
 import { bold, fg, TUI_COLOR } from './theme.ts'
 
@@ -26,8 +26,8 @@ export interface AgentTranscriptOverlayCallbacks {
 
 /**
  * Title + scrollable live transcript + footer hint, shown through
- * `tui.showOverlay`. The child session's existing events replay on
- * construction; {@link applyEvent} folds live events while the overlay is open.
+ * `tui.showOverlay`. The supplied events replay on construction;
+ * {@link applyEvent} folds live events while the overlay is open.
  */
 export class AgentTranscriptOverlay implements Component {
   private readonly scroll: ScrollView
@@ -36,20 +36,21 @@ export class AgentTranscriptOverlay implements Component {
 
   /**
    * @param label - the run's descriptor label, shown as the accent heading.
-   * @param session - the child session whose log is replayed and kept live.
+   * @param events - the child session's events to replay (live snapshot or a
+   *   persistence inspection for a cold child).
    * @param lookup - tool definition resolver scoped to the child agent.
    * @param rows - live TTY rows; the viewport keeps a title row and a hint row.
    * @param callbacks - dismiss handler.
    */
   constructor(
     private readonly label: string,
-    session: Session,
+    events: readonly SessionEvent[],
     lookup: ToolLookup,
     private readonly rows: () => number,
     callbacks: AgentTranscriptOverlayCallbacks,
   ) {
     this.view = new TranscriptView(lookup)
-    for (const event of session.events) this.view.applyEvent(event, true)
+    for (const event of events) this.view.applyEvent(event, true)
     this.scroll = new ScrollView([], { height: 8, scrollbar: 'auto', ellipsis: Ellipsis.Omit })
     this.onClose = callbacks.onClose
   }

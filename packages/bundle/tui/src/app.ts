@@ -4,6 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   Editor,
@@ -27,8 +28,9 @@ import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LlmModelInfo, LlmReasoningEffortInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
-import type {} from '@deepseek-ai/dsh-subagent'
+import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -82,6 +84,7 @@ import type { SettingsOverlayHandle } from './settings.ts'
 import { createTuiAuthInteraction, formatAuthStatus, LOGIN_CANCELLED, LoginTextForm, type LoginOverlayHandle } from './login.ts'
 import { CLEAR_DEFAULT_PRESET, defaultPresetRows, presetPickerItem, sessionBlank } from './presets.ts'
 import { createQuestionProvider } from './questions.ts'
+import { resolveSessionExportPath } from './export.ts'
 import {
   sessionPickerItem,
   sortSessionPickerEntries,
@@ -103,7 +106,7 @@ import {
 } from './theme-settings.ts'
 import { TranscriptView, extractText, type ToolLookup } from './transcript.ts'
 import { statsLine } from './stats.ts'
-import { formatStatusChips, jobPickerItem } from './status.ts'
+import { formatStatusChips, jobPickerItem, todoPickerItem } from './status.ts'
 import type { JobStatusRow } from './status.ts'
 // Type-only: load the SessionProjectionMap augmentation (tokenUsage /
 // contextPressure / contextBreakdown from token-meter, sessionStats from
@@ -116,6 +119,61 @@ import type {} from '@deepseek-ai/dsh-plan-mode/types'
 import type {} from '@deepseek-ai/dsh-goal/types'
 import type {} from '@deepseek-ai/dsh-tool-todo/src/types.ts'
 import type {} from '@deepseek-ai/dsh-jobs'
+
+/**
+ * One merged Agent Hub roster row: the durable child identity plus the live
+ * tracker's status when the run is still resident. Cold children (loaded from
+ * persistence on `--resume`) carry only the durable fields.
+ */
+interface AgentHubEntry {
+  /** The durable child session id, used to load the transcript. */
+  readonly childSessionId: SessionId
+  /** Descriptor label, or a provider/mode fallback when no label is durable. */
+  readonly label: string
+  /** Live `thinking` / `running <tool>` status, or `running`/`inactive`. */
+  readonly status: string
+  /** Whether the run is currently live in the session store. */
+  readonly running: boolean
+}
+
+/**
+ * Merge the in-memory tracker roster with the durable `listChildren`
+ * enumeration. Tracked entries enrich a durable child with live status; tracked
+ * children absent from the durable list (the creation window before the
+ * descriptor is appended) are appended so a just-started run is still visible.
+ * Order is durable (by `createdAt`) then tracker-only (by start order).
+ */
+function mergeAgentRoster(
+  tracked: readonly SubagentRosterEntry[],
+  durable: readonly SubagentListEntry[],
+): AgentHubEntry[] {
+  const trackedById = new Map(tracked.map(entry => [entry.childSessionId, entry]))
+  const merged: AgentHubEntry[] = []
+  const seen = new Set<string>()
+  for (const entry of durable) {
+    if (entry.kind !== 'child') continue
+    const id = entry.id
+    seen.add(id)
+    const live = trackedById.get(id)
+    merged.push({
+      childSessionId: id,
+      label: live?.label ?? entry.label ?? `subagent · ${entry.mode}`,
+      status: live?.status ?? (entry.activity === 'running' ? 'running' : 'inactive'),
+      running: live?.running ?? entry.activity === 'running',
+    })
+  }
+  for (const entry of tracked) {
+    if (!seen.has(entry.childSessionId)) {
+      merged.push({
+        childSessionId: entry.childSessionId,
+        label: entry.label,
+        status: entry.status,
+        running: entry.running,
+      })
+    }
+  }
+  return merged
+}
 
 /** Process-facing effects of one TUI run. */
 export interface TuiIo {
@@ -154,6 +212,8 @@ interface OverlayOperation {
 export class TuiApp {
   private readonly abort = new AbortController()
   private handle: AgentHandle | undefined
+  /** TUI-owned handles parked while `/sessions` borrows a still-registered Agent. */
+  private parked: AgentHandle[] = []
   private agent: Agent | undefined
   private tui: TUI | undefined
   private terminal: Terminal | undefined
@@ -290,7 +350,7 @@ export class TuiApp {
         return { consume: true }
       }
       if (matchesKey(data, 'alt+a')) {
-        this.openAgentHub()
+        void this.openAgentHub()
         return { consume: true }
       }
       return undefined
@@ -332,7 +392,7 @@ export class TuiApp {
       name: 'agents',
       description: 'Inspect subagent runs',
       handler: () => {
-        this.openAgentHub()
+        void this.openAgentHub()
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -395,6 +455,17 @@ export class TuiApp {
       },
     })
     commands.register({
+      name: 'export',
+      description: 'Export this session log to a JSONL file',
+      input: { hint: 'path' },
+      handler: ({ rawInput }) => {
+        void this.startExport(rawInput.trim()).catch((error: unknown) => {
+          this.notice(error instanceof Error ? error.message : String(error))
+        })
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
       name: 'sessions',
       description: 'Switch to a persisted session',
       input: { hint: 'session' },
@@ -410,6 +481,14 @@ export class TuiApp {
       description: 'List this session\'s background jobs',
       handler: () => {
         this.openJobsPicker()
+        return { kind: 'success' as const, text: '' }
+      },
+    })
+    commands.register({
+      name: 'todos',
+      description: 'List this session\'s standing todos',
+      handler: () => {
+        this.openTodosPicker()
         return { kind: 'success' as const, text: '' }
       },
     })
@@ -576,9 +655,14 @@ export class TuiApp {
       return
     }
     const handle = this.handle
+    const parked = this.parked
     this.handle = undefined
-    if (handle === undefined) return
-    const disposal = handle.dispose()
+    this.parked = []
+    if (handle === undefined && parked.length === 0) return
+    const disposal = (async () => {
+      for (const item of parked) await item.dispose()
+      if (handle !== undefined) await handle.dispose()
+    })()
     this.handleDisposal = disposal
     try {
       await disposal
@@ -838,6 +922,47 @@ export class TuiApp {
           this.notice(selected === undefined
             ? item.value
             : `${selected.status} · ${selected.label}${selected.detail === undefined ? '' : ` — ${selected.detail}`}`)
+        },
+        onCancel: () => { this.hideOverlay() },
+      },
+    )
+    this.overlay = showPicker(tui, picker)
+  }
+
+  /**
+   * Overlay of this session's standing todos. Selecting a row notices
+   * status and content. The picker does not write the list.
+   */
+  private openTodosPicker(): void {
+    const tui = this.tui
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    const projections = this.ctx.get('sessionProjections')
+    if (projections === undefined) {
+      this.notice('session projections are not mounted')
+      return
+    }
+    const agent = this.agent
+    if (agent === undefined) return
+    const todos = projections.snapshot(agent.session).values.todos
+    if (todos === undefined) {
+      this.notice('todos are not mounted')
+      return
+    }
+    if (todos === null || todos.length === 0) {
+      this.notice('no todos in this session')
+      return
+    }
+    const picker = new OverlayPicker(
+      'Todos',
+      todos.map((todo, index) => todoPickerItem(todo, index)),
+      '↑/↓ · Enter detail · Esc close',
+      {
+        onSelect: (item) => {
+          this.hideOverlay()
+          const selected = todos[Number(item.value)]
+          this.notice(selected === undefined
+            ? item.value
+            : `${selected.status} · ${selected.content}`)
         },
         onCancel: () => { this.hideOverlay() },
       },
@@ -2213,6 +2338,52 @@ export class TuiApp {
   }
 
   /**
+   * `/export [path]`: flush this session and write its durable raw artifact
+   * to a local JSONL file. An empty argument uses `dsh-session-<id>.jsonl`
+   * in the process cwd. A running turn may export. Descendants and
+   * attachments are omitted; this is not the Web ZIP download.
+   * @param requestedPath - a cwd-relative or absolute destination, or empty.
+   */
+  async startExport(requestedPath: string): Promise<void> {
+    const agent = this.agent
+    if (agent === undefined) return
+    const persistence = this.ctx.get('sessionPersistence')
+    if (persistence === undefined) {
+      this.notice('session persistence is not mounted')
+      return
+    }
+    if (!persistence.supportsRawArtifacts) {
+      this.notice('session export needs a raw-artifact backend')
+      return
+    }
+    try {
+      await this.ctx.get('sessions')?.flush(agent.session)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+      return
+    }
+    let raw
+    try {
+      raw = await persistence.readRaw(agent.session.id)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+      return
+    }
+    if (raw === undefined) {
+      this.notice('session artifact is missing')
+      return
+    }
+    const dest = resolveSessionExportPath(requestedPath, agent.id, process.cwd())
+    try {
+      await writeFile(dest, raw.content)
+    } catch (error: unknown) {
+      this.notice(error instanceof Error ? error.message : String(error))
+      return
+    }
+    this.notice(`exported ${dest}`)
+  }
+
+  /**
    * `/rename [title]`: pin this session's title through `ctx.sessionTitle`.
    * An empty argument opens a text form. A running turn may rename.
    * @param title - the submitted title, or empty to prompt.
@@ -2329,32 +2500,63 @@ export class TuiApp {
       return
     }
     const current = this.selection?.current
+    const parked = this.takeParked(id)
+    const live = agents.get(SessionId(id))
     let next: AgentHandle
+    let parkPrevious = false
     try {
-      next = await this.resumeSession(agents, id, current === undefined
-        ? undefined
-        : { provider: current.provider, model: current.model })
+      if (parked !== undefined) {
+        next = parked
+      } else if (live !== undefined) {
+        next = { agent: live, dispose: async () => {} }
+        parkPrevious = true
+      } else {
+        next = await this.resumeSession(agents, id, current === undefined
+          ? undefined
+          : { provider: current.provider, model: current.model })
+      }
     } catch (error: unknown) {
       this.notice(error instanceof Error ? error.message : String(error))
       return
     }
-    await this.adoptHandle(next, `session ${next.agent.id}`)
+    await this.adoptHandle(next, `session ${next.agent.id}`, parkPrevious)
   }
 
   /**
-   * Make `next` the live Agent. The previous handle is flushed and disposed
-   * only after the new one is idle, so a failed create/resume never reaches
-   * here.
+   * Take back a TUI-owned handle parked while another session was live.
+   * @param id - persisted session id.
+   * @returns the parked handle, or undefined when this id was not parked.
+   */
+  private takeParked(id: string): AgentHandle | undefined {
+    const index = this.parked.findIndex(handle => handle.agent.id === id)
+    if (index < 0) return undefined
+    return this.parked.splice(index, 1)[0]
+  }
+
+  /**
+   * Make `next` the live Agent. The previous handle is flushed after the
+   * switch; it is parked when the next Agent is already registered, otherwise
+   * disposed. A failed create/resume never reaches here.
    * @param next - the handle that just became ready.
    * @param notice - the line painted after the switch.
+   * @param parkPrevious - keep the previous TUI-owned handle; the next Agent
+   *   is already registered and must not take ownership of it.
    */
-  private async adoptHandle(next: AgentHandle, notice: string): Promise<void> {
+  private async adoptHandle(
+    next: AgentHandle,
+    notice: string,
+    parkPrevious = false,
+  ): Promise<void> {
     const previous = this.handle
     this.handle = next
     this.agent = next.agent
-    await next.agent.whenIdle()
-    this.hideWorking()
-    this.setBusy(false)
+    if (next.agent.status !== 'running') {
+      await next.agent.whenIdle()
+      this.hideWorking()
+      this.setBusy(false)
+    } else {
+      this.setBusy(true)
+    }
     this.subagents?.reset()
     this.agentTranscript = undefined
     this.disposeStatsListener?.()
@@ -2373,7 +2575,8 @@ export class TuiApp {
       } catch (error: unknown) {
         this.notice(error instanceof Error ? error.message : String(error))
       }
-      await previous.dispose()
+      if (parkPrevious) this.parked.push(previous)
+      else await previous.dispose()
     }
   }
 
@@ -2517,59 +2720,91 @@ export class TuiApp {
   }
 
   /**
-   * Open the Agent Hub roster (Alt+A or `/agents`): one picker row per tracked
-   * run, live or recently settled. Selecting a row opens
-   * {@link openAgentTranscript} for that run's child session.
+   * Open the Agent Hub roster (Alt+A or `/agents`): one picker row per child
+   * of the current session — live and cold. The roster merges the in-memory
+   * tracker (rich `thinking` / `running <tool>` status) with the durable
+   * `listChildren` enumeration (label and mode, including children the tracker
+   * lost on `--resume`). Selecting a row opens {@link openAgentTranscript}.
    */
-  openAgentHub(): void {
+  async openAgentHub(): Promise<void> {
     const tui = this.tui
     if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
-    const entries = this.subagents?.roster() ?? []
-    if (entries.length === 0) {
-      this.notice('no subagent runs to inspect')
-      return
+    this.overlayOpening = true
+    try {
+      const subagents = this.ctx.get('subagents')
+      const parentSessionId = this.agent?.session.id
+      let durable: SubagentListEntry[] = []
+      if (subagents !== undefined && parentSessionId !== undefined) {
+        try {
+          durable = await subagents.listChildren(parentSessionId)
+        } catch {
+          // A listing failure still leaves the live tracker entries; cold
+          // children are unreachable this run, not an error for the hub.
+          durable = []
+        }
+      }
+      if (this.tui !== tui || this.stopped) return
+      const merged = mergeAgentRoster(this.subagents?.roster() ?? [], durable)
+      if (merged.length === 0) {
+        this.notice('no subagent runs to inspect')
+        return
+      }
+      const items: SelectItem[] = merged.map(entry => ({
+        label: `⏵ ${entry.label}`,
+        value: entry.childSessionId,
+        description: entry.status,
+      }))
+      const picker = new OverlayPicker('Agents', items, 'enter open · esc close', {
+        onSelect: (item) => {
+          const entry = merged.find(candidate => candidate.childSessionId === item.value)
+          this.hideOverlay()
+          if (entry !== undefined) void this.openAgentTranscript(entry)
+        },
+        onCancel: () => { this.hideOverlay() },
+      })
+      this.overlay = showPicker(tui, picker)
+    } finally {
+      this.overlayOpening = false
     }
-    const items: SelectItem[] = entries.map(entry => ({
-      label: `⏵ ${entry.label}`,
-      value: entry.runId,
-      description: entry.status,
-    }))
-    const picker = new OverlayPicker('Agents', items, 'enter open · esc close', {
-      onSelect: (item) => {
-        const entry = entries.find(candidate => candidate.runId === item.value)
-        this.hideOverlay()
-        if (entry !== undefined) this.openAgentTranscript(entry)
-      },
-      onCancel: () => { this.hideOverlay() },
-    })
-    this.overlay = showPicker(tui, picker)
   }
 
   /**
-   * Open a fullscreen live transcript overlay for one subagent run. The child
-   * session's existing events replay on construction, and the `session/event`
-   * listener folds live events while the overlay is open.
+   * Open a fullscreen live transcript overlay for one child session. The
+   * child's events replay on construction — from the live session store when
+   * resident, otherwise a persistence inspection through
+   * `SubagentRuntime.loadChildEvents` — and the `session/event` listener folds
+   * live events while the overlay is open. A child whose events cannot be
+   * loaded (no live session and no persistence row) notices instead.
    * @param entry - the roster row the user selected.
    */
-  openAgentTranscript(entry: SubagentRosterEntry): void {
+  async openAgentTranscript(entry: AgentHubEntry): Promise<void> {
     const tui = this.tui
-    if (tui === undefined) return
-    const agent = this.ctx.get('agents')?.get(entry.childSessionId)
-    const session = agent?.session ?? this.ctx.get('sessions')?.get(entry.childSessionId)
-    if (session === undefined) {
-      this.notice('subagent session no longer available')
-      return
+    if (tui === undefined || this.overlay !== undefined || this.overlayOpening) return
+    this.overlayOpening = true
+    try {
+      const subagents = this.ctx.get('subagents')
+      const events = subagents !== undefined
+        ? await subagents.loadChildEvents(entry.childSessionId)
+        : this.ctx.get('sessions')?.get(entry.childSessionId)?.events
+      if (this.tui !== tui || this.stopped) return
+      if (events === undefined) {
+        this.notice('subagent session no longer available')
+        return
+      }
+      const agent = this.ctx.get('agents')?.get(entry.childSessionId)
+      const lookup: ToolLookup = name => this.ctx.get('tools')?.get(name, agent)
+      const overlay = new AgentTranscriptOverlay(
+        `⏵ ${entry.label}`,
+        events,
+        lookup,
+        () => tui.terminal.rows,
+        { onClose: () => { this.agentTranscript = undefined; this.hideOverlay() } },
+      )
+      this.agentTranscript = { sessionId: entry.childSessionId, overlay }
+      this.overlay = showAgentTranscriptOverlay(tui, overlay)
+    } finally {
+      this.overlayOpening = false
     }
-    const lookup: ToolLookup = name => this.ctx.get('tools')?.get(name, agent)
-    const overlay = new AgentTranscriptOverlay(
-      `⏵ ${entry.label}`,
-      session,
-      lookup,
-      () => tui.terminal.rows,
-      { onClose: () => { this.agentTranscript = undefined; this.hideOverlay() } },
-    )
-    this.agentTranscript = { sessionId: entry.childSessionId, overlay }
-    this.overlay = showAgentTranscriptOverlay(tui, overlay)
   }
 
   /**

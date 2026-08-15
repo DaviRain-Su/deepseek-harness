@@ -37,7 +37,7 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
@@ -357,6 +357,39 @@ export class SubagentRuntime extends Service {
    */
   listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]> {
     return listSubagentDescendants(this.ctx, rootSessionId, signal)
+  }
+
+  /**
+   * Load one child session's event log for read-only inspection: the live
+   * session's events when the child is resident in `ctx.sessions`, otherwise
+   * one persistence inspection. The TUI Agent Hub uses this to render a
+   * settled or cold child's full transcript on `--resume`, where the
+   * in-memory run tracker is empty and the child session is not loaded.
+   *
+   * Unlike {@link listChildren}, this reads one full event log, not a folded
+   * identity, and performs no projection fold or lifecycle validation. A
+   * best-effort inspect: a child deleted and re-published under the same id
+   * returns whatever that id currently holds. Absent persistence and a missing
+   * live session resolve to `undefined` so the caller can notice instead of
+   * throwing.
+   * @param childId - the durable child session id whose events are loaded.
+   * @param signal - caller-owned cancellation forwarded to the persistence read.
+   * @returns the child's events, or `undefined` when no live session and no
+   *   persistence row exist for `childId`.
+   */
+  async loadChildEvents(childId: SessionId, signal?: AbortSignal): Promise<readonly SessionEvent[] | undefined> {
+    const live = this.ctx.get('sessions')?.get(childId)
+    if (live !== undefined) return live.events
+    const persistence = this.ctx.get('sessionPersistence')
+    if (persistence === undefined) return undefined
+    try {
+      const { events } = await persistence.inspect(childId, signal)
+      return events
+    } catch {
+      // A vanished child or a failed read is capability absence for a
+      // read-only inspect; the caller notices rather than crashing the Hub.
+      return undefined
+    }
   }
 
   /**

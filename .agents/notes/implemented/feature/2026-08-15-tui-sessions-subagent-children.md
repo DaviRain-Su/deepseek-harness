@@ -12,7 +12,7 @@ English | [中文](2026-08-15-tui-sessions-subagent-children.zh.md)
 
 `/sessions` lists every `filterSessions([])` row, including `origin: 'subagent'`. There is no header filter. A subagent-origin row's description includes a `subagent` mark. Selecting a row, or `/sessions <id>`, resumes in-process through the same `adoptHandle` path as any other conversation. A running turn still refuses. The process cwd does not change. The picker stays one flat searchable list — no Web-style tree, no parent grouping.
 
-`/agents` remains the live-inspect overlay over `SubagentTracker.roster()`. A child whose agent is still registered fails resume loud through the existing notice, the same as any other register collision.
+`/agents` remains the live-inspect overlay over `SubagentTracker.roster()`. A child whose agent is still registered is adopted in place; [TUI /sessions adopts a live registered agent](2026-08-15-tui-sessions-adopt-live.md) owns that path.
 
 ## Alternatives considered
 
@@ -20,7 +20,7 @@ English | [中文](2026-08-15-tui-sessions-subagent-children.zh.md)
 
 **A parent-grouped tree overlay.** Rejected: SelectList has no disabled group headers, and a second overlay hides the fuzzy search that already matches title, id, and path.
 
-**Adopt a live child handle instead of resume.** Rejected: the TUI owns one Agent handle; colliding with a still-registered child is a resume failure, not a second ownership path.
+**Adopt a live child handle instead of resume.** Rejected in this note; superseded by [TUI /sessions adopts a live registered agent](2026-08-15-tui-sessions-adopt-live.md).
 
 ## Consequences
 
@@ -35,4 +35,5 @@ A persisted subagent child can become the live TUI session. `/agents` still does
 - [TUI session picker](2026-08-14-tui-session-picker.md) — the overlay and in-process resume this catalog now fills with children.
 - [TUI /rename and /fork](2026-08-15-tui-rename-fork.md) — the leftover this note lands.
 - [TUI Agent Hub](2026-08-15-tui-agent-hub.md) — inspect without switching.
+- [TUI /sessions adopts a live registered agent](2026-08-15-tui-sessions-adopt-live.md) — opening a child whose agent is still registered.
 - [TUI /sessions lists every recorded cwd](2026-08-14-tui-sessions-across-cwds.md) — cwd grouping is unchanged.

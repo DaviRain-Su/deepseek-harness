@@ -23,7 +23,7 @@ Alt+A 与 `/agents` 打开 Agent Hub——一个底部锚定的 picker，列出�
 
 **只有 `/agents` 名册、无 transcript overlay。** 否决：纯状态名册与页脚单运行行重复；价值在于完整 transcript 的下钻。
 
-**`--resume` 时重建 hub。** 超出范围：`subagent/start` / `subagent/end` 是瞬时的，hub 只展示 tracker 当前持有的运行，`--resume` 不会重新填充。已记录为已知限制，与运行卡片相同。
+**`--resume` 时重建 hub。** 已在 [TUI Agent Hub 在 --resume 下存活](2026-08-15-tui-agent-hub-resume.md) 中解决：名册从 `SubagentRuntime.listChildren` 重建，新增 `loadChildEvents` 打开冷子代理的 transcript，无需改动 `SessionEventMap`。
 
 ## 影响
 
@@ -35,7 +35,7 @@ Alt+A 与 `/agents` 打开 Agent Hub——一个底部锚定的 picker，列出�
 
 ## 已知限制与待办
 
-store 已驱逐子会话的已结束运行改为提示而非打开。`--resume` 既不重建 hub 也不重建运行卡片；委派的持久工具调用与结果仍在父 transcript 中重放。
+store 已驱逐子会话的已结束运行改为提示而非打开。`--resume` 现已通过 [TUI Agent Hub 在 --resume 下存活](2026-08-15-tui-agent-hub-resume.md) 重建 hub 名册并打开冷子代理；父侧 `⏵` 运行卡片仍只 live，因此委派的持久化工具调用与结果仍是父侧可见的痕迹。
 
 ## 相关
 

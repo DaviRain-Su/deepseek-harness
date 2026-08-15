@@ -23,7 +23,7 @@ Alt+A and `/agents` open the Agent Hub, a bottom-anchored picker listing every t
 
 **A `/agents` roster without a transcript overlay.** Rejected: a status-only roster duplicates the footer per-run row; the value is the full transcript dive.
 
-**Reconstruct the hub on `--resume`.** Out of scope: the `subagent/start` / `subagent/end` pair is transient, and the hub shows runs the tracker currently holds, which `--resume` does not repopulate. Documented as a known limitation, same as the run cards.
+**Reconstruct the hub on `--resume`.** Resolved in [TUI Agent Hub survives --resume](2026-08-15-tui-agent-hub-resume.md): the roster rebuilds from `SubagentRuntime.listChildren` and a new `loadChildEvents` opens a cold child's transcript, without a `SessionEventMap` change.
 
 ## Consequences
 
@@ -35,7 +35,7 @@ New file `src/agent-hub.ts` exports `AgentTranscriptOverlay` and `showAgentTrans
 
 ## Known limitations and deferred work
 
-Settled runs whose child session the store has evicted notice instead of opening. `--resume` repopulates neither the hub nor the run cards; the delegation's durable tool call and result still replay in the parent transcript.
+Settled runs whose child session the store has evicted notice instead of opening. `--resume` now rebuilds the hub roster and opens cold children through [TUI Agent Hub survives --resume](2026-08-15-tui-agent-hub-resume.md); the parent-side `⏵` run cards remain live-only, so the delegation's durable tool call and result are still the visible parent-side trace.
 
 ## Related
 

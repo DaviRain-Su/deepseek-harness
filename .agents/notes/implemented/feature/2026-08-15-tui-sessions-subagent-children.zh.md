@@ -12,7 +12,7 @@ Status: implemented
 
 `/sessions` 列出 `filterSessions([])` 的每一行，包括 `origin: 'subagent'`。没有 header 过滤。subagent origin 行的描述带 `subagent` 标记。选中一行，或 `/sessions <id>`，经与其他对话相同的 `adoptHandle` 路径在进程内 resume。正在运行的一轮仍会拒绝。不改进程 cwd。picker 仍是一份扁平可搜索列表——没有 Web 那种树，也不按父会话分组。
 
-`/agents` 仍是 `SubagentTracker.roster()` 上的只读 overlay。子会话的 agent 若仍已注册，resume 会按现有提示大声失败，与其他注册冲突相同。
+`/agents` 仍是 `SubagentTracker.roster()` 上的只读 overlay。子会话的 agent 若仍已注册，会就地接管；[TUI /sessions 接管仍已注册的 Agent](2026-08-15-tui-sessions-adopt-live.md) 拥有这条路径。
 
 ## 考虑过的替代方案
 
@@ -20,7 +20,7 @@ Status: implemented
 
 **按父会话分组的树 overlay。** 否决：SelectList 没有不可选的分组标题，第二层 overlay 还会挡住已经能同时搜标题、id 和路径的模糊搜索。
 
-**接管活的子 handle，而不是 resume。** 否决：TUI 只拥有一个 Agent handle；与仍已注册的子会话冲突是 resume 失败，不是第二条所有权路径。
+**接管活的子 handle，而不是 resume。** 本笔记否决；由 [TUI /sessions 接管仍已注册的 Agent](2026-08-15-tui-sessions-adopt-live.md) 取代。
 
 ## 后果
 
@@ -35,4 +35,5 @@ Status: implemented
 - [TUI 会话 picker](2026-08-14-tui-session-picker.md) — 本目录现在用子会话填充的 overlay 与进程内 resume。
 - [TUI /rename 与 /fork](2026-08-15-tui-rename-fork.md) — 本笔记落地的剩余项。
 - [TUI Agent Hub](2026-08-15-tui-agent-hub.md) — 查看而不切换。
+- [TUI /sessions 接管仍已注册的 Agent](2026-08-15-tui-sessions-adopt-live.md) — 打开 agent 仍已注册的子会话。
 - [TUI /sessions 列出各已记录 cwd](2026-08-14-tui-sessions-across-cwds.md) — cwd 分组不变。

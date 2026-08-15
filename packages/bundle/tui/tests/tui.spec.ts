@@ -1,5 +1,8 @@
 /** Interactive runtime: TTY checks, create/resume, submit, slash commands, teardown. */
 
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox, emitAgentEvent } from '@deepseek-ai/dsh-agent'
@@ -287,7 +290,7 @@ describe('tui runtime', () => {
     const test = await bench()
     const { app, code } = await test.run()
     // No runs yet: the hub notices instead of opening an overlay.
-    app['openAgentHub']()
+    await app['openAgentHub']()
     expect(app['overlay']).toBeUndefined()
     expect(app['transcript'].container.render(80).join('\n')).toContain('no subagent runs to inspect')
 
@@ -304,16 +307,15 @@ describe('tui runtime', () => {
     })
 
     // The hub now opens a picker overlay.
-    app['openAgentHub']()
+    await app['openAgentHub']()
     expect(app['overlay']).toBeDefined()
     app['hideOverlay']()
     expect(app['overlay']).toBeUndefined()
 
     // Open the run's transcript overlay directly. It replays the child log,
     // so the heading and the child's tool call both render.
-    app['openAgentTranscript']({
-      runId: 'run-1', childSessionId: childId, label: '调查任务',
-      provider: 'in-process', status: 'running bash', running: true,
+    await app['openAgentTranscript']({
+      childSessionId: childId, label: '调查任务', status: 'running bash', running: true,
     })
     const overlay = app['agentTranscript']?.overlay
     expect(overlay).toBeDefined()
@@ -330,6 +332,33 @@ describe('tui runtime', () => {
     // Escape dismisses the overlay and clears the routing state.
     overlay.handleInput('\u001b')
     expect(app['agentTranscript']).toBeUndefined()
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('lists a durable child in the Agent Hub when the tracker is empty', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const childId = SessionId('cold-child')
+    test.ctx.provide('subagents', {
+      listChildren: async () => [{
+        kind: 'child',
+        id: childId,
+        activity: 'inactive',
+        hasChildren: false,
+        mode: 'one-shot',
+        label: 'cold run',
+      }],
+      loadChildEvents: async () => [],
+    } as never)
+    await app.openAgentHub()
+    expect(app['overlay']).toBeDefined()
+    app['hideOverlay']()
+    await app.openAgentTranscript({
+      childSessionId: childId, label: 'cold run', status: 'inactive', running: false,
+    })
+    expect(app['agentTranscript']?.overlay.render(80).join('\n')).toContain('cold run')
     await app.quit(0)
     expect(await code).toBe(0)
     await test.ctx.fiber.dispose()
@@ -1173,6 +1202,41 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('lists this session\'s standing todos and notices a missing projection', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/help')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('/todos  List this session\'s standing todos')
+    await app.submit('/todos')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('session projections are not mounted')
+    let values: Record<string, unknown> = {}
+    test.ctx.provide('sessionProjections', {
+      snapshot: () => ({ asOfSeq: 0, values }),
+      onChanged: () => () => {},
+    } as never)
+    await app.submit('/todos')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('todos are not mounted')
+    values = { todos: null }
+    await app.submit('/todos')
+    expect(app['transcript'].container.render(80).join('\n')).toContain('no todos in this session')
+    values = {
+      todos: [
+        { content: 'a', status: 'completed' },
+        { content: 'b', status: 'pending' },
+      ],
+    }
+    await app.submit('/todos')
+    expect(app['overlay']).toBeDefined()
+    test.fake.type('\r')
+    expect(app['overlay']).toBeUndefined()
+    expect(app['transcript'].container.render(80).join('\n')).toContain('completed · a')
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('hides the Thinking loader on the first streamed token', async () => {
     let release: (() => void) | undefined
     const held = new Promise<void>((resolve) => { release = resolve })
@@ -1867,6 +1931,43 @@ describe('tui runtime', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('exports this session log and notices a missing persistence service', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    await app.submit('/help')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('/export  Export this session log to a JSONL file')
+    await app.submit('/export')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('session persistence is not mounted')
+    let supportsRawArtifacts = false
+    let artifact: { content: string } | undefined
+    test.ctx.provide('sessionPersistence', {
+      get supportsRawArtifacts() { return supportsRawArtifacts },
+      readRaw: async () => artifact,
+    } as never)
+    await app.submit('/export')
+    expect(app['transcript'].container.render(80).join('\n'))
+      .toContain('session export needs a raw-artifact backend')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-tui-export-'))
+    const dest = join(dir, 'out.jsonl')
+    try {
+      supportsRawArtifacts = true
+      await app.startExport(dest)
+      expect(app['transcript'].container.render(80).join('\n'))
+        .toContain('session artifact is missing')
+      artifact = { content: '{"type":"session"}\n' }
+      await app.startExport(dest)
+      expect(await readFile(dest, 'utf8')).toBe('{"type":"session"}\n')
+      expect(app['transcript'].container.render(200).join('\n')).toContain(`exported ${dest}`)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+    await app.quit(0)
+    expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
   it('unlocks /preset after /new on a started session', async () => {
     const test = await bench()
     const recomposed: string[] = []
@@ -1932,6 +2033,30 @@ describe('tui runtime', () => {
     expect(app['transcript'].container.render(80).join('\n')).toContain('session session-child')
     await app.quit(0)
     expect(await code).toBe(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('adopts a still-registered session instead of resuming it', async () => {
+    const test = await bench()
+    const { app, code } = await test.run()
+    const current = app['agent']!
+    const child = test.ctx.sessions.create(SessionId('session-live-child'), {
+      meta: {
+        origin: 'subagent',
+        parentSession: SessionId(current.id),
+        cwd: process.cwd(),
+      },
+    })
+    const live = await test.ctx.agents.resume({ resumeSessionId: child.id })
+    await app.startSessions(child.id)
+    expect(app['agent']).toBe(live.agent)
+    expect(test.ctx.agents.get(SessionId(current.id))).toBe(current)
+    expect(app['transcript'].container.render(80).join('\n')).toContain(`session ${child.id}`)
+    await app.startSessions(current.id)
+    expect(app['agent']).toBe(current)
+    await app.quit(0)
+    expect(await code).toBe(0)
+    expect(test.agentDisposals()).toBe(1)
     await test.ctx.fiber.dispose()
   })
 

@@ -175,6 +175,14 @@ export class SubagentTracker {
     this.notify()
   }
 
+  /**
+   * Settle one run on `subagent/end`, completing its card with the stop reason
+   * and a tool-call count summary. Idempotent: a second end for the same run
+   * returns `false` so the caller rings BEL exactly once.
+   * @param info - the `subagent/end` payload, keyed by `runId`.
+   * @returns `true` when this call settled the run, `false` when it was absent
+   *   or already settled.
+   */
   end(info: SubagentRunEndInfo): boolean {
     const state = this.runs.get(info.runId)
     if (state === undefined || state.done) return false

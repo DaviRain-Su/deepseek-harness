@@ -35,7 +35,7 @@ function childSession(id: string): Session {
 function harness() {
   const container = new Container()
   const counts: number[] = []
-  const summaries: SubagentRunSummary[][] = []
+  const summaries: (readonly SubagentRunSummary[])[] = []
   const resolved: string[] = []
   const tracker = new SubagentTracker(container, {
     resolveAgent: (id) => {
@@ -171,7 +171,7 @@ describe('SubagentTracker', () => {
 
     tracker.sessionEvent(childSession('child-status'), event('tool/result', {
       turn: 1, step: 1,
-      message: createToolResultMessage({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }] }),
+      message: createToolResultMessage({ callId: CallId('c1'), content: [{ type: 'text', text: 'ok' }], isError: false }),
     }))
     expect(summaries[summaries.length - 1]).toEqual([{ label: 'survey', status: 'thinking' }])
 

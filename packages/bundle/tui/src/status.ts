@@ -1,5 +1,5 @@
 /**
- * Footer chips and `/jobs` rows for plan, goal, todos, and background jobs.
+ * Footer chips, `/jobs` rows, and `/todos` rows for plan, goal, todos, and background jobs.
  * Values come from session projections and `ctx.jobs`; this module only formats.
  * @module @deepseek-ai/dsh-tui/status
  */
@@ -106,5 +106,19 @@ export function jobPickerItem(job: JobStatusRow): SelectItem {
     value: job.id,
     label: `${job.status} · ${job.label}`,
     ...job.detail === undefined || job.detail.length === 0 ? {} : { description: job.detail },
+  }
+}
+
+/**
+ * One `/todos` picker row. The standing list has no stable id; the index is
+ * the picker's value.
+ * @param todo - one standing item.
+ * @param index - the item's position in the current projection cut.
+ * @returns a SelectList item whose value is the decimal index.
+ */
+export function todoPickerItem(todo: TodoItem, index: number): SelectItem {
+  return {
+    value: String(index),
+    label: `${todo.status} · ${todo.content}`,
   }
 }
